@@ -117,14 +117,11 @@ if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
 }
 const transporter = nodemailer.createTransport({
     host: 'smtp.gmail.com',
-    port: 587, // STARTTLS port — needed to get through Render's outbound firewall
-    secure: false, // must be false for port 587
+    port: 465,
+    secure: true,
     auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS
-    },
-    tls: {
-        rejectUnauthorized: false 
     }
 });
 
