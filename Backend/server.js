@@ -41,9 +41,14 @@ const app = express();
 
 app.use(express.json());
 app.use(cors({
-    origin: ["http://localhost:5173", "http://localhost:8081", "http://localhost:5000", "https://duo-sync-app.vercel.app"], 
+    origin: [
+        "http://localhost:5173", 
+        "http://localhost:8081", 
+        "http://localhost:5000", 
+        "https://try-sync-app-v2.vercel.app"
+    ], 
     methods: ["GET", "POST", "PUT", "DELETE"],
-    credentials: true // Allow cookies/headers if needed
+    credentials: true
 }));
 app.use(bodyParser.json());
 
