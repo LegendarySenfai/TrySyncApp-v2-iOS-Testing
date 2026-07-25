@@ -6,7 +6,7 @@ import axios from 'axios';
 // next time you redeploy to a new Render service.
 export const BASE_URL = window.location.hostname === "localhost" 
   ? "http://localhost:5000" 
-  : (import.meta.env.VITE_API_URL || "https://trisync-backend-q965.onrender.com");
+  : (import.meta.env.VITE_API_URL || "https://trysyncapp-v2.onrender.com");
 
 const api = axios.create({
   baseURL: BASE_URL, 
