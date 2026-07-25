@@ -5,7 +5,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // __DEV__ is true when running via Expo on your computer, false in production
 export const BASE_URL = __DEV__ 
   ? "http://192.168.86.5:5000"                   // <-- Your Local Laptop IP
-  : "https://trisync-backend-q965.onrender.com"; // <-- Your Live Server
+  : "https://trysyncapp-v2.onrender.com"; // <-- Your Live Server
 
 const api = axios.create({
   baseURL: BASE_URL, 
