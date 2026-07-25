@@ -1,0 +1,10 @@
+node_modules/
+.env
+.env.*
+!.env.example
+
+# User-uploaded content shouldn't live in git history — it'll only grow.
+uploads/*
+!uploads/.gitkeep
+
+npm-debug.log*
