@@ -46,6 +46,10 @@ export default function LaundryScreen() {
   const [customerName, setCustomerName]   = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [weightKg, setWeightKg]           = useState('');
+  const [customerNameError, setCustomerNameError] = useState('');
+  const [customerPhoneError, setCustomerPhoneError] = useState('');
+  const [weightError, setWeightError] = useState('');
+  const [formError, setFormError] = useState('');
   const [pickupDate, setPickupDate]       = useState(getDefaultPickupDate());
   const [claimTicket, setClaimTicket]     = useState('');
 
@@ -53,7 +57,9 @@ export default function LaundryScreen() {
   const [paymentModalVisible, setPaymentModalVisible] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [amountReceived, setAmountReceived] = useState('');
+  const [amountError, setAmountError] = useState('');
   const [gcashReference, setGcashReference] = useState('');
+  const [gcashError, setGcashError] = useState('');
   const [pendingTotal, setPendingTotal] = useState(0);
 
   // ── Claim Ticket Success Modal ─────────────
@@ -95,7 +101,9 @@ export default function LaundryScreen() {
     setPendingTotal(payload.total_revenue ?? 0);
     setPaymentMethod('cash');
     setAmountReceived('');
+    setAmountError('');
     setGcashReference('');
+    setGcashError('');
     setPaymentModalVisible(true);   // ← show payment modal first
     setCheckoutResolver(() => resolve);
   });
@@ -106,19 +114,26 @@ const handleConfirmPayment = () => {
   if (paymentMethod === 'cash') {
     const received = parseFloat(amountReceived);
     if (isNaN(received) || received < pendingTotal) {
-      return showResponsiveAlert('Invalid Amount', `Amount received cannot be less than ₱${pendingTotal.toFixed(2)}.`);
+      setAmountError(`Amount received cannot be less than ₱${pendingTotal.toFixed(2)}.`);
+      return;
     }
   } else {
     if (!gcashReference.trim()) {
-      return showResponsiveAlert('Required', 'Please enter the GCash Reference / Transaction ID.');
+      setGcashError('Please enter the GCash Reference / Transaction ID.');
+      return;
     }
   }
 
   // Payment is valid — close payment modal and open customer info modal
+  setAmountError('');
   setPaymentModalVisible(false);
   setCustomerName('');
   setCustomerPhone('');
   setWeightKg('');
+  setCustomerNameError('');
+  setCustomerPhoneError('');
+  setWeightError('');
+  setFormError('');
   setPickupDate(getDefaultPickupDate());
   setClaimTicket(generateClaimTicket());
   setCustomerModalVisible(true);
@@ -127,17 +142,36 @@ const handleConfirmPayment = () => {
   const handleConfirmCustomerInfo = async () => {
     if (isSubmitting) return; // 🛠️ NEW: Anti-spam lock prevents double execution
 
+    if (!customerName.trim() && !customerPhone.trim() && !weightKg.trim()) {
+    setFormError('Please fill in all required fields before confirming.');
+    return;
+  }
++ setFormError('');
+
     if (!customerName.trim()) {
-      return showResponsiveAlert('Required', 'Please enter the customer name.');
+      setCustomerNameError('Please enter the customer name.');
+      return;
     }
     const phoneRegex = /^09\d{9}$/;
+    if (!customerPhone.trim()) {
+      setCustomerPhoneError('Please enter the contact number.');
+      return;
+    }
     if (!phoneRegex.test(customerPhone.trim())) {
-      return showResponsiveAlert('Invalid Number', 'Enter a valid phone number.');
+      setCustomerPhoneError('Enter a valid phone number.');
+      return;
     }
-    if (!weightKg.trim() || isNaN(parseFloat(weightKg)) || parseFloat(weightKg) <= 0) {
-      return showResponsiveAlert('Required', 'Please enter a valid weight in kg.');
+    if (!weightKg.trim()) {
+      setWeightError('Please enter the load weight.');
+      return;
     }
-
+    if (isNaN(parseFloat(weightKg)) || parseFloat(weightKg) <= 0) {
+      setWeightError('Please enter a valid weight in kg.');
+      return;
+    }
+    setCustomerNameError('');
+    setCustomerPhoneError('');
+    setWeightError('');
     setIsSubmitting(true); // 🔒 Lock the button!
 
     try {
@@ -218,7 +252,10 @@ const handleConfirmPayment = () => {
       {/* Cash / GCash Toggle */}
       <View style={{ flexDirection: 'row', gap: 10, marginBottom: 20 }}>
         <TouchableOpacity
-          onPress={() => setPaymentMethod('cash')}
+          onPress={() => {
+            setPaymentMethod('cash');
+            setGcashError('');
+          }}
           style={{
             flex: 1, padding: 14, borderRadius: 10, alignItems: 'center',
             borderWidth: 2,
@@ -231,7 +268,10 @@ const handleConfirmPayment = () => {
         </TouchableOpacity>
 
         <TouchableOpacity
-          onPress={() => setPaymentMethod('gcash')}
+          onPress={() => {
+            setPaymentMethod('gcash');
+            setAmountError('');
+          }}
           style={{
             flex: 1, padding: 14, borderRadius: 10, alignItems: 'center',
             borderWidth: 2,
@@ -249,17 +289,26 @@ const handleConfirmPayment = () => {
         <View style={{ marginBottom: 20 }}>
           <Text style={styles.fieldLabel}>AMOUNT RECEIVED</Text>
           <TextInput
-            style={styles.input}
+            style={[styles.input, amountError ? { borderColor: '#EF4444' } : null]}
             placeholder="e.g. 100"
             placeholderTextColor="#adb5bd"
             keyboardType="decimal-pad"
             value={amountReceived}
-            onChangeText={setAmountReceived}
+            onChangeText={(text) => {
+              setAmountReceived(text);
+              if (amountError) setAmountError('');
+            }}
           />
-          {parseFloat(amountReceived) >= pendingTotal && (
-            <Text style={{ color: '#16A34A', fontSize: 12, marginTop: 4 }}>
-              Change: ₱{(parseFloat(amountReceived) - pendingTotal).toFixed(2)}
+          {amountError ? (
+            <Text style={{ color: '#EF4444', fontSize: 12, marginTop: 4 }}>
+              {amountError}
             </Text>
+          ) : ( 
+            parseFloat(amountReceived) >= pendingTotal && (
+              <Text style={{ color: '#16A34A', fontSize: 12, marginTop: 4 }}>
+                Change: ₱{(parseFloat(amountReceived) - pendingTotal).toFixed(2)}
+              </Text>
+            )
           )}
         </View>
       )}
@@ -269,15 +318,22 @@ const handleConfirmPayment = () => {
         <View style={{ marginBottom: 20 }}>
           <Text style={styles.fieldLabel}>GCASH REFERENCE / TRANSACTION ID</Text>
           <TextInput
-            style={styles.input}
+            style={[styles.input, gcashError ? { borderColor: '#EF4444' } : null]}
             placeholder="e.g. 1234567890"
             placeholderTextColor="#adb5bd"
             value={gcashReference}
-            onChangeText={setGcashReference}
+            onChangeText={(text) => {
+              setGcashReference(text);
+              if (gcashError) setGcashError('');
+            }}
           />
-          <Text style={{ color: '#3B82F6', fontSize: 12, marginTop: 4 }}>
-            Double check if ₱{Number(pendingTotal).toFixed(2)} is successfully sent to GCash.
-          </Text>
+          {gcashError ? (
+            <Text style={{ color: '#EF4444', fontSize: 12, marginTop: 4 }}>{gcashError}</Text>
+          ) : (
+            <Text style={{ color: '#3B82F6', fontSize: 12, marginTop: 4 }}>
+              Double check if ₱{Number(pendingTotal).toFixed(2)} is successfully sent to GCash.
+            </Text>
+          )}
         </View>
       )}
 
@@ -341,30 +397,45 @@ const handleConfirmPayment = () => {
                 <Text style={styles.ticketPreviewNumber}>{claimTicket}</Text>
               </View>
 
+              {formError ? (
+              <View style={styles.formErrorBanner}>
+              <Text style={styles.formErrorText}>{formError}</Text>
+              </View>
+              ) : null}
+
               {/* Customer Name */}
               <Text style={styles.fieldLabel}>Customer Name <Text style={styles.required}>*</Text></Text>
               <TextInput
-                style={styles.input}
+                style={[styles.input, customerNameError ? { borderColor: '#EF4444' } : null]}
                 placeholder="e.g. Maria Santos"
                 placeholderTextColor="#adb5bd"
                 value={customerName}
-                onChangeText={setCustomerName}
+                onChangeText={(text) => {
+                  setCustomerName(text);
+                  if (customerNameError) setCustomerNameError('');
+                  if (formError) setFormError('');
+                }}
                 autoCapitalize="words"
                 returnKeyType="next"
               />
+              {customerNameError ? <Text style={{ color: '#EF4444', fontSize: 12, marginTop: 4 }}>{customerNameError}</Text> : null}
 
               {/* Contact Number */}
               <Text style={styles.fieldLabel}>Contact Number <Text style={styles.required}>*</Text></Text>
               <TextInput
-                style={styles.input}
+                style={[styles.input, customerPhoneError ? { borderColor: '#EF4444' } : null]}
                 placeholder="e.g. 09171234567"
                 placeholderTextColor="#adb5bd"
                 value={customerPhone}
-                onChangeText={(text) => setCustomerPhone(text.replace(/[^0-9]/g, ''))}
+                onChangeText={(text) => {
+                  setCustomerPhone(text.replace(/[^0-9]/g, ''));
+                  if (customerPhoneError) setCustomerPhoneError('');
+                }}
                 keyboardType="phone-pad"
                 maxLength={11}
                 returnKeyType="next"
               />
+              {customerPhoneError ? <Text style={{ color: '#EF4444', fontSize: 12, marginTop: 4 }}>{customerPhoneError}</Text> : null}
 
               {/* Weight */}
               <Text style={styles.fieldLabel}>
@@ -372,11 +443,19 @@ const handleConfirmPayment = () => {
               </Text>
               <View style={styles.inputRow}>
                 <TextInput
-                  style={[styles.input, { flex: 1, marginBottom: 0 }]}
+                  style={[styles.input, { flex: 1, marginBottom: 0 }, weightError ? { borderColor: '#EF4444' } : null]}
                   placeholder="0.0"
                   placeholderTextColor="#adb5bd"
                   value={weightKg}
-                  onChangeText={setWeightKg}
+                  onChangeText={(text) => {
+                    let filtered = text.replace(/[^0-9.]/g, '');
+                    const parts = filtered.split('.');
+                    if (parts.length > 2) {
+                      filtered = parts[0] + '.' + parts.slice(1).join('');
+                    }
+                    setWeightKg(filtered);
+                    if (weightError) setWeightError('');
+                  }}
                   keyboardType="decimal-pad"
                   returnKeyType="done"
                 />
@@ -384,7 +463,11 @@ const handleConfirmPayment = () => {
                   <Text style={styles.unitBadgeText}>kg</Text>
                 </View>
               </View>
-              <Text style={styles.fieldHint}>Weigh the load before entering</Text>
+              {weightError ? (
+                <Text style={{ color: '#EF4444', fontSize: 12, marginTop: 4 }}>{weightError}</Text>
+              ) : (
+                <Text style={styles.fieldHint}>Weigh the load before entering</Text>
+              )}
 
               {/* Pickup Date */}
               <Text style={[styles.fieldLabel, { marginTop: 15 }]}>Pickup Date</Text>
@@ -640,4 +723,19 @@ const styles = StyleSheet.create({
   },
   successKey: { fontSize: 13, color: '#64748B' },
   successVal: { fontSize: 13, fontWeight: '700', color: '#0F172A' },
+  formErrorBanner: {
+   backgroundColor: '#FEF2F2',
+   borderWidth: 1.5,
+   borderColor: '#FCA5A5',
+   borderRadius: 8,
+   paddingVertical: 10,
+   paddingHorizontal: 14,
+   marginBottom: 16,
+ },
+ formErrorText: {
+   color: '#DC2626',
+   fontSize: 13,
+   fontWeight: '700',
+   textAlign: 'center',
+ },
 });

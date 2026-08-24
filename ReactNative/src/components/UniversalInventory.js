@@ -14,6 +14,8 @@ export default function UniversalInventory({ category }) {
   const [batchAmounts, setBatchAmounts] = useState({});
   const [batchCosts, setBatchCosts] = useState({}); // 🛠️ NEW: Tracks the money spent per item
   const [isSubmitting, setIsSubmitting] = useState(false); // 🛠️ NEW: Anti-spam lock
+  const [formError, setFormError] = useState('');
+  const [focusedField, setFocusedField] = useState(null);
 
   const fetchIngredients = async () => {
     try {
@@ -44,14 +46,27 @@ export default function UniversalInventory({ category }) {
       setReferenceNote('');
       setBatchAmounts({});
       setBatchCosts({}); // 🛠️ NEW: Clears old cost data
+      setFormError(''); // ← new
       setBatchModalVisible(true);
   };
-  const handleAmountChange = (id, value) => {
-      setBatchAmounts(prev => ({ ...prev, [id]: value }));
+  const handleAmountChange = (id, rawValue) => {
+      let filtered = rawValue.replace(/[^0-9.]/g, '');      
+      const parts = filtered.split('.');
+      if (parts.length > 2) {                                
+          filtered = parts[0] + '.' + parts.slice(1).join('');
+      }
+      setBatchAmounts(prev => ({ ...prev, [id]: filtered }));
+      if (formError) setFormError('');
   };
-  const handleCostChange = (id, value) => {
-      setBatchCosts(prev => ({ ...prev, [id]: value })); // 🛠️ NEW: Saves the cost typed by user
-  };
+  const handleCostChange = (id, rawValue) => {
+    let filtered = rawValue.replace(/[^0-9.]/g, '');
+    const parts = filtered.split('.');
+    if (parts.length > 2) {
+        filtered = parts[0] + '.' + parts.slice(1).join('');
+    }
+    setBatchCosts(prev => ({ ...prev, [id]: filtered }));
+    if (formError) setFormError('');
+};
 
   const handleSubmitBatch = async () => {
     if (isSubmitting) return; // Anti-spam lock
@@ -70,13 +85,17 @@ export default function UniversalInventory({ category }) {
             total_cost_paid: parseFloat(batchCosts[item.id]) || 0 
         }));
 
-    if (itemsToRestock.length === 0) {
-        return Alert.alert("Required", "Please enter valid positive amounts for the items you bought.");
+    if (!referenceNote.trim()) {
+        setFormError('Please enter the Receipt or Reference Number.');   // ← changed
+        return;                                                          // ← changed
     }
-    if (!referenceNote) {
-        return Alert.alert("Required", "Please enter the Receipt or Reference Number.");
+    if (itemsToRestock.length === 0) {
+        setFormError('Please enter a quantity for at least one item.');  // ← changed
+        return;                                                          // ← changed
     }
 
+
+    setFormError('');
     setIsSubmitting(true); // 🔒 Lock the button!
 
     try {
@@ -134,38 +153,57 @@ export default function UniversalInventory({ category }) {
                 <Text style={{color: '#64748b', marginBottom: 15, fontSize: 12}}>
                     Enter the receipt number once, then input the quantities for all items bought on that receipt.
                 </Text>
+                {formError ? (                                                  
+                  <View style={styles.formErrorBanner}>                        
+                    <Text style={styles.formErrorText}>{formError}</Text>       
+                  </View>                                                          
+                ) : null}      
 
                 <Text style={styles.label}>Receipt OR Reference Note <Text style={{color:'red'}}>*</Text></Text>
                 <TextInput 
                     placeholder="e.g. OR# 12345 from Puregold" 
                     value={referenceNote} 
-                    onChangeText={setReferenceNote} 
-                    style={styles.input} 
+                    onChangeText={(text) => {                                   
+                        setReferenceNote(text);                                   
+                        if (formError) setFormError('');                      
+                    }}
+                    style={[styles.input, formError && !referenceNote.trim() ? { borderColor: '#EF4444' } : null]}  
                 />
 
                 <Text style={[styles.label, {marginTop: 10, borderBottomWidth: 1, borderColor: '#eee', paddingBottom: 5}]}>Items Bought</Text>
                 <ScrollView style={styles.batchScroll} keyboardShouldPersistTaps="handled">
                     {ingredients.map(item => (
-                        <View key={item.id} style={styles.batchRow}>
-                            <Text style={styles.batchItemName} numberOfLines={1}>{item.item_name}</Text>
-                            <View style={styles.batchInputContainer}>
-                                <TextInput 
-                                    style={[styles.batchInput, { marginRight: 5 }]}
-                                    placeholder="Qty"
-                                    keyboardType="numeric"
-                                    value={batchAmounts[item.id] || ''}
-                                    onChangeText={(val) => handleAmountChange(item.id, val)}
-                                />
-                                <TextInput 
-                                    style={[styles.batchInput, { marginRight: 5, borderColor: '#10b981' }]}
-                                    placeholder="Cost ₱"
-                                    keyboardType="numeric"
-                                    value={batchCosts[item.id] || ''}
-                                    onChangeText={(val) => handleCostChange(item.id, val)}
-                                />
-                                <Text style={styles.batchUnit}>{item.unit}</Text>
-                            </View>
-                        </View>
+                          <View key={item.id} style={styles.batchRow}>
+                              <Text style={styles.batchItemName} numberOfLines={2}>{item.item_name}</Text>
+                              <View style={styles.batchInputContainer}>
+                                  <View style={[styles.batchField, focusedField === `${item.id}-qty` && styles.batchFieldFocused]}>
+                                      <TextInput 
+                                          style={styles.batchInput}
+                                          placeholder="Qty"
+                                          placeholderTextColor="#94A3B8"
+                                          keyboardType="decimal-pad"
+                                          value={batchAmounts[item.id] || ''}
+                                          onChangeText={(val) => handleAmountChange(item.id, val)}
+                                          onFocus={() => setFocusedField(`${item.id}-qty`)}
+                                          onBlur={() => setFocusedField(null)}
+                                      />
+                                      <Text style={styles.batchUnit}>{item.unit}</Text>
+                                  </View>
+                                  <View style={[styles.batchField, focusedField === `${item.id}-cost` && styles.batchFieldFocused]}>
+                                      <Text style={styles.batchPeso}>₱</Text>
+                                      <TextInput 
+                                          style={styles.batchInput}
+                                          placeholder="Cost"
+                                          placeholderTextColor="#94A3B8"
+                                          keyboardType="decimal-pad"
+                                          value={batchCosts[item.id] || ''}
+                                          onChangeText={(val) => handleCostChange(item.id, val)}
+                                          onFocus={() => setFocusedField(`${item.id}-cost`)}
+                                          onBlur={() => setFocusedField(null)}
+                                      />
+                                  </View>
+                              </View>
+                          </View>
                     ))}
                 </ScrollView>
 
@@ -209,14 +247,50 @@ const styles = StyleSheet.create({
   input: { borderWidth: 1, borderColor: '#cbd5e1', padding: 12, marginBottom: 5, borderRadius: 5, fontSize: 16 },
   
   batchScroll: { maxHeight: 300, marginBottom: 15 },
-  batchRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderColor: '#f1f5f9' },
-  batchItemName: { flex: 1, fontSize: 14, color: '#334155', paddingRight: 10, fontWeight: '500' },
-  batchInputContainer: { flexDirection: 'row', alignItems: 'center', width: 170 },
-  batchInput: { flex: 1, borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 4, padding: 8, textAlign: 'center' },
-  batchUnit: { width: 30, textAlign: 'right', fontSize: 12, color: '#94a3b8' },
+  batchRow: { paddingVertical: 12, borderBottomWidth: 1, borderColor: '#f1f5f9' },
+  batchItemName: { fontSize: 14, color: '#334155', fontWeight: '600', marginBottom: 8 },
+  batchInputContainer: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  batchField: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: '#CBD5E1',
+    borderRadius: 8,
+    backgroundColor: '#F8FAFC',
+    paddingHorizontal: 10,
+  },
+  batchFieldFocused: { borderColor: '#0F172A', backgroundColor: '#fff' },
+  batchInput: {
+    flex: 1,
+    minWidth: 0,
+    paddingVertical: 10,
+    fontSize: 15,
+    color: '#0F172A',
+    ...Platform.select({ web: { outlineStyle: 'none' } }),
+  },
+  batchUnit: { fontSize: 12, color: '#94A3B8', marginLeft: 6 },
+  batchPeso: { fontSize: 15, fontWeight: '700', color: '#64748B', marginRight: 4 },
 
   modalButtons: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10 },
   btn: { flex: 1, padding: 15, borderRadius: 5, alignItems: 'center', marginHorizontal: 5 },
   cancelBtn: { backgroundColor: '#94a3b8' },
-  saveBtn: { backgroundColor: '#27ae60' }
+  saveBtn: { backgroundColor: '#27ae60' },
+
+    formErrorBanner: {
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1.5,
+    borderColor: '#FCA5A5',
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    marginBottom: 12,
+  },
+  formErrorText: {
+    color: '#DC2626',
+    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
 });

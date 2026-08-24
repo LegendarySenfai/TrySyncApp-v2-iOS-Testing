@@ -15,7 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  ActivityIndicator, Alert, Image, TextInput, useWindowDimensions, Modal, FlatList, Platform
+  ActivityIndicator, Alert, Image, TextInput, useWindowDimensions, Modal, FlatList, Platform, KeyboardAvoidingView
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import api, { BASE_URL } from '../config/api';
@@ -55,6 +55,9 @@ export default function UniversalPOS({ category, title, onBeforeCheckout }) {
   const [auditCounts, setAuditCounts] = useState({});
   const [shiftStarted, setShiftStarted] = useState(false);
   const [startingCash, setStartingCash] = useState('');
+  const [startingCashError, setStartingCashError] = useState('');
+  const [startingCashFocused, setStartingCashFocused] = useState(false);
+  const [discountError, setDiscountError] = useState('');
   const [endingCash, setEndingCash] = useState('');
   const [isSubmittingAudit, setIsSubmittingAudit] = useState(false);
   const [cart, setCart] = useState([]);
@@ -553,6 +556,18 @@ export default function UniversalPOS({ category, title, onBeforeCheckout }) {
     }
   };
 
+  // Same validation condition as before — shown inline instead of an OS alert.
+  const handleOpenRegister = async () => {
+    if (!startingCash || isNaN(parseFloat(startingCash)) || parseFloat(startingCash) < 0) {
+      setStartingCashError('Please enter a valid starting cash amount (0 or higher).');
+      return;
+    }
+    setStartingCashError('');
+    setShiftStarted(true);
+    await AsyncStorage.setItem(`shiftActive_${category}`, 'true');
+    await AsyncStorage.setItem(`startingCash_${category}`, startingCash.toString());
+  };
+
   const handleInitiateEndShift = async () => {
     try {
       const [invRes, summaryRes] = await Promise.all([
@@ -903,8 +918,14 @@ export default function UniversalPOS({ category, title, onBeforeCheckout }) {
     </View>
   </View>
           ) : (
-            <TouchableOpacity onPress={() => setShowDiscountModal(true)} style={{ backgroundColor: '#c7e0fa', padding: 10, borderRadius: 5, alignItems: 'center', marginBottom: 15 }}>
-              <Text style={{ color: '#3b82f6', fontWeight: 'bold', fontSize: 12 }}>Apply Senior / PWD Discount</Text>
+            <TouchableOpacity
+              onPress={() => setShowDiscountModal(true)}
+              disabled={cart.length === 0}
+              style={[styles.discountTriggerBtn, cart.length === 0 && styles.discountTriggerBtnDisabled]}
+            >
+              <Text style={[styles.discountTriggerText, cart.length === 0 && styles.discountTriggerTextDisabled]}>
+                {cart.length === 0 ? 'Add items to apply a discount' : 'Apply Senior / PWD Discount'}
+              </Text>
             </TouchableOpacity>
           )}
 
@@ -929,87 +950,154 @@ export default function UniversalPOS({ category, title, onBeforeCheckout }) {
 
       {/* 💳 SENIOR / PWD DISCOUNT MODAL */}
       <Modal visible={showDiscountModal} animationType="none" transparent>
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', padding: 30, justifyContent: 'center', alignItems: 'center' }}>
-          <View style={{ backgroundColor: 'white', padding: 25, borderRadius: 10, width: 400 }}>
-            <Text style={{ fontSize: 20, fontWeight: 'bold', marginBottom: 5, color: '#0f172a' }}>Apply Legal Discount</Text>
-            <Text style={{ color: '#e74c3c', fontSize: 12, marginBottom: 20, fontWeight: 'bold' }}>* Required for BIR Auditing purposes.</Text>
-            <View style={{ flexDirection: 'row', gap: 10, marginBottom: 15 }}>
-              <TouchableOpacity
-                onPress={() => setDiscountDetails({ ...discountDetails, type: 'Senior Citizen' })}
-                style={{ flex: 1, padding: 10, borderWidth: 1, borderColor: discountDetails.type === 'Senior Citizen' ? '#3b82f6' : '#cbd5e1', backgroundColor: discountDetails.type === 'Senior Citizen' ? '#eff6ff' : 'white', borderRadius: 5, alignItems: 'center' }}
-              >
-                <Text style={{ fontWeight: discountDetails.type === 'Senior Citizen' ? 'bold' : 'normal', color: discountDetails.type === 'Senior Citizen' ? '#3b82f6' : '#64748b' }}>Senior Citizen</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => setDiscountDetails({ ...discountDetails, type: 'PWD' })}
-                style={{ flex: 1, padding: 10, borderWidth: 1, borderColor: discountDetails.type === 'PWD' ? '#3b82f6' : '#cbd5e1', backgroundColor: discountDetails.type === 'PWD' ? '#eff6ff' : 'white', borderRadius: 5, alignItems: 'center' }}
-              >
-                <Text style={{ fontWeight: discountDetails.type === 'PWD' ? 'bold' : 'normal', color: discountDetails.type === 'PWD' ? '#3b82f6' : '#64748b' }}>PWD</Text>
-              </TouchableOpacity>
-            </View>
-            <Text style={{ fontWeight: 'bold', fontSize: 12, color: '#334155', marginBottom: 5 }}>Customer Name (On ID)</Text>
-            <TextInput
-              style={{ borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 5, padding: 10, fontSize: 14, marginBottom: 15 }}
-              placeholder="e.g. Juan Dela Cruz"
-              value={discountDetails.name}
-              onChangeText={(val) => setDiscountDetails({ ...discountDetails, name: val })}
-            />
-            <Text style={{ fontWeight: 'bold', fontSize: 12, color: '#334155', marginBottom: 5 }}>Control / ID Number</Text>
-            <TextInput
-  style={{ borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 5, padding: 10, fontSize: 14, marginBottom: 25 }}
-  placeholder="e.g. 123456789012"
-  value={discountDetails.id}
-  onChangeText={(val) => setDiscountDetails({ ...discountDetails, id: val.replace(/[^0-9]/g, '') })}
-  keyboardType="numeric"
-  maxLength={15}
-/>
-            <View style={{ flexDirection: 'row', gap: 10 }}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.discountBackdrop}
+        >
+          <View style={styles.discountCard}>
+            <Text style={styles.discountTitle}>Apply Legal Discount</Text>
+            <Text style={styles.discountNotice}>* Required for BIR Auditing purposes.</Text>
+
+            <ScrollView
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ paddingBottom: 4 }}
+            >
+              {discountError ? (
+                <View style={styles.formErrorBanner}>
+                  <Text style={styles.formErrorText}>{discountError}</Text>
+                </View>
+              ) : null}
+
+              <View style={styles.discountTypeRow}>
+                <TouchableOpacity
+                  onPress={() => setDiscountDetails({ ...discountDetails, type: 'Senior Citizen' })}
+                  style={[styles.discountTypeChip, discountDetails.type === 'Senior Citizen' && styles.discountTypeChipActive]}
+                >
+                  <Text style={[styles.discountTypeText, discountDetails.type === 'Senior Citizen' && styles.discountTypeTextActive]}>
+                    Senior Citizen
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => setDiscountDetails({ ...discountDetails, type: 'PWD' })}
+                  style={[styles.discountTypeChip, discountDetails.type === 'PWD' && styles.discountTypeChipActive]}
+                >
+                  <Text style={[styles.discountTypeText, discountDetails.type === 'PWD' && styles.discountTypeTextActive]}>
+                    PWD
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              <Text style={styles.discountLabel}>Customer Name (On ID)</Text>
+              <TextInput
+                style={[styles.discountInput, !!discountError && !discountDetails.name && styles.discountInputError]}
+                placeholder="e.g. Juan Dela Cruz"
+                placeholderTextColor="#94A3B8"
+                value={discountDetails.name}
+                autoCapitalize="words"
+                returnKeyType="next"
+                onChangeText={(val) => {
+                  setDiscountDetails({ ...discountDetails, name: val });
+                  if (discountError) setDiscountError('');
+                }}
+              />
+
+              <Text style={styles.discountLabel}>Control / ID Number</Text>
+              <TextInput
+                style={[styles.discountInput, { marginBottom: 20 }, !!discountError && !discountDetails.id && styles.discountInputError]}
+                placeholder="e.g. 123456789012"
+                placeholderTextColor="#94A3B8"
+                value={discountDetails.id}
+                onChangeText={(val) => {
+                  setDiscountDetails({ ...discountDetails, id: val.replace(/[^0-9]/g, '') });
+                  if (discountError) setDiscountError('');
+                }}
+                keyboardType="numeric"
+                maxLength={15}
+                returnKeyType="done"
+              />
+            </ScrollView>
+
+            <View style={styles.discountActions}>
               <TouchableOpacity
                 onPress={() => {
-                  if (!discountDetails.name || !discountDetails.id) return showResponsiveAlert("Error", "Please enter the Customer Name and ID Number from the physical card.");
+                  setDiscountError('');
+                  setShowDiscountModal(false);
+                }}
+                style={styles.discountCancelBtn}
+              >
+                <Text style={styles.discountCancelText}>CANCEL</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => {
+                  if (!discountDetails.name || !discountDetails.id) {
+                    setDiscountError('Please enter the Customer Name and ID Number from the physical card.');
+                    return;
+                  }
+                  setDiscountError('');
                   setDiscountApplied(true);
                   setShowDiscountModal(false);
                 }}
-                style={{ flex: 1, backgroundColor: '#3b82f6', padding: 12, borderRadius: 5, alignItems: 'center' }}
+                style={styles.discountApplyBtn}
               >
-                <Text style={{ color: 'white', fontWeight: 'bold' }}>APPLY DISCOUNT</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => setShowDiscountModal(false)} style={{ flex: 1, backgroundColor: '#94a3b8', padding: 12, borderRadius: 5, alignItems: 'center' }}>
-                <Text style={{ color: 'white', fontWeight: 'bold' }}>CANCEL</Text>
+                <Text style={styles.discountApplyText}>APPLY DISCOUNT</Text>
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* 🟢 STARTING CASH MODAL (HARD GATE) */}
       <Modal visible={!shiftStarted} animationType="fade" transparent>
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', padding: 30, justifyContent: 'center', alignItems: 'center' }}>
-          <View style={{ backgroundColor: 'white', padding: 30, borderRadius: 10, width: 400 }}>
-            <Text style={{ fontSize: 24, fontWeight: 'bold', marginBottom: 10, color: '#27ae60' }}>Open Shift</Text>
-            <Text style={{ color: '#64748b', marginBottom: 20 }}>Welcome! To unlock the POS, please count the starting cash (Float) currently in the register.</Text>
-            <TextInput
-              style={{ borderWidth: 1, borderColor: '#ccc', borderRadius: 8, padding: 15, fontSize: 20, marginBottom: 20, textAlign: 'center' }}
-              keyboardType="numeric"
-              placeholder="Enter Starting Cash (₱)"
-              value={startingCash}
-              onChangeText={setStartingCash}
-            />
-            <TouchableOpacity
-              onPress={async () => {
-                if (!startingCash || isNaN(parseFloat(startingCash)) || parseFloat(startingCash) < 0) {
-                  return showResponsiveAlert("Invalid Input", "Please enter a valid starting cash amount (0 or higher).");
-                }
-                setShiftStarted(true);
-                await AsyncStorage.setItem(`shiftActive_${category}`, 'true');
-                await AsyncStorage.setItem(`startingCash_${category}`, startingCash.toString());
-              }}
-              style={{ backgroundColor: '#27ae60', padding: 15, borderRadius: 8, alignItems: 'center' }}
-            >
-              <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 18 }}>OPEN REGISTER</Text>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.shiftBackdrop}
+        >
+          <View style={styles.shiftCard}>
+            <Text style={styles.shiftTitle}>Open Shift</Text>
+            <Text style={styles.shiftSubtitle}>
+              Welcome! To unlock the POS, please count the starting cash currently in the register.
+            </Text>
+
+            {startingCashError ? (
+              <View style={styles.formErrorBanner}>
+                <Text style={styles.formErrorText}>{startingCashError}</Text>
+              </View>
+            ) : null}
+
+            <Text style={styles.shiftLabel}>STARTING CASH</Text>
+            <View style={[
+                styles.shiftInputWrap,
+                startingCashFocused && styles.shiftInputWrapFocused,
+                !!startingCashError && styles.shiftInputWrapError,
+              ]}>
+              <Text style={styles.shiftPeso}>₱</Text>
+              <TextInput
+                style={styles.shiftInput}
+                keyboardType="decimal-pad"
+                placeholder="0.00"
+                placeholderTextColor="#94A3B8"
+                value={startingCash}
+                autoFocus
+                returnKeyType="done"
+                onSubmitEditing={handleOpenRegister}
+                onFocus={() => setStartingCashFocused(true)}
+                onBlur={() => setStartingCashFocused(false)}
+                onChangeText={(text) => {
+                  let filtered = text.replace(/[^0-9.]/g, '');
+                  const parts = filtered.split('.');
+                  if (parts.length > 2) filtered = parts[0] + '.' + parts.slice(1).join('');
+                  setStartingCash(filtered);
+                  if (startingCashError) setStartingCashError('');
+                }}
+              />
+            </View>
+
+            <TouchableOpacity onPress={handleOpenRegister} style={styles.shiftButton}>
+              <Text style={styles.shiftButtonText}>OPEN REGISTER</Text>
             </TouchableOpacity>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* 🛑 END SHIFT BLIND AUDIT MODAL */}
@@ -1448,6 +1536,152 @@ export default function UniversalPOS({ category, title, onBeforeCheckout }) {
 // All original styles are 100% preserved below.
 // Two new style blocks are added at the very end for the offline banner.
 const styles = StyleSheet.create({
+  // ── Discount trigger button (cart footer) ──
+  discountTriggerBtn: {
+    backgroundColor: '#C7E0FA',
+    padding: 10,
+    borderRadius: 5,
+    alignItems: 'center',
+    marginBottom: 15,
+  },
+  discountTriggerBtnDisabled: { backgroundColor: '#F1F5F9' },
+  discountTriggerText: { color: '#3B82F6', fontWeight: 'bold', fontSize: 12 },
+  discountTriggerTextDisabled: { color: '#94A3B8' },
+
+  // ── Senior / PWD discount modal ──
+  discountBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(15,23,42,0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  discountCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 24,
+    width: '100%',
+    maxWidth: 400,
+    maxHeight: '90%',
+  },
+  discountTitle: { fontSize: 20, fontWeight: '800', color: '#0F172A', marginBottom: 4 },
+  discountNotice: { color: '#DC2626', fontSize: 12, fontWeight: '700', marginBottom: 18 },
+  discountTypeRow: { flexDirection: 'row', gap: 10, marginBottom: 18 },
+  discountTypeChip: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 6,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 48,
+  },
+  discountTypeChipActive: { borderColor: '#3B82F6', backgroundColor: '#EFF6FF' },
+  discountTypeText: { fontSize: 14, fontWeight: '600', color: '#64748B', textAlign: 'center' },
+  discountTypeTextActive: { fontWeight: '800', color: '#3B82F6' },
+  discountLabel: { fontSize: 12, fontWeight: '700', color: '#475569', marginBottom: 6 },
+  discountInput: {
+    borderWidth: 1.5,
+    borderColor: '#CBD5E1',
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 15,
+    color: '#0F172A',
+    backgroundColor: '#F8FAFC',
+    marginBottom: 14,
+  },
+  discountInputError: { borderColor: '#EF4444' },
+  discountActions: { flexDirection: 'row', gap: 10, marginTop: 14 },
+  discountCancelBtn: {
+    flex: 1,
+    backgroundColor: '#F1F5F9',
+    paddingVertical: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  discountCancelText: { color: '#64748B', fontWeight: '700', fontSize: 14 },
+  discountApplyBtn: {
+    flex: 2,
+    backgroundColor: '#3B82F6',
+    paddingVertical: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  discountApplyText: { color: '#fff', fontWeight: '800', fontSize: 14 },
+
+  // ── Open Shift modal ──
+  shiftBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(15,23,42,0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  shiftCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 28,
+    width: '100%',
+    maxWidth: 400,
+  },
+  shiftTitle: { fontSize: 24, fontWeight: '800', color: '#16A34A', marginBottom: 8 },
+  shiftSubtitle: { fontSize: 14, color: '#64748B', lineHeight: 20, marginBottom: 20 },
+  shiftLabel: { fontSize: 12, fontWeight: '700', color: '#475569', marginBottom: 6, letterSpacing: 0.5 },
+  shiftInputWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: '#CBD5E1',
+    borderRadius: 10,
+    backgroundColor: '#F8FAFC',
+    paddingHorizontal: 16,
+    marginBottom: 20,
+  },
+  shiftInputWrapFocused: { borderColor: '#16A34A', backgroundColor: '#fff' },
+  shiftInputWrapError: { borderColor: '#EF4444' },
+  shiftPeso: { fontSize: 22, fontWeight: '700', color: '#64748B', marginRight: 8 },
+  shiftInput: {
+  flex: 1,
+  paddingVertical: 14,
+  fontSize: 22,
+  fontWeight: '700',
+  color: '#0F172A',
+  ...Platform.select({ web: { outlineStyle: 'none' } }),
+  },
+  shiftButton: {
+    backgroundColor: '#16A34A',
+    paddingVertical: 16,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  shiftButtonText: { color: '#fff', fontWeight: '800', fontSize: 17, letterSpacing: 0.5 },
+  quickAmountRow: { flexDirection: 'row', gap: 8, marginBottom: 18 },
+  quickAmountChip: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#fff',
+    alignItems: 'center',
+  },
+  quickAmountChipActive: { borderColor: '#16A34A', backgroundColor: '#F0FDF4' },
+  quickAmountText: { fontSize: 14, fontWeight: '700', color: '#64748B' },
+  quickAmountTextActive: { color: '#16A34A' },
+  formErrorBanner: {
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1.5,
+    borderColor: '#FCA5A5',
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    marginBottom: 16,
+  },
+  formErrorText: { color: '#DC2626', fontSize: 13, fontWeight: '700', textAlign: 'center' },
   container: { flex: 1, flexDirection: 'row', backgroundColor: '#fff' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
 

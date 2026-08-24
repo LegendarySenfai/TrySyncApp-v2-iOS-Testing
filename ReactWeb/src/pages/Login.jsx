@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import logo from '../assets/images/DuoSync Logo.png';
+import logo from '../assets/images/duosync-splash.png';
 import eyeIcon from '../assets/images/noun-show-eye.svg';
 import eyeOffIcon from '../assets/images/noun-eye-hide.svg';
 import api from '../config/api';

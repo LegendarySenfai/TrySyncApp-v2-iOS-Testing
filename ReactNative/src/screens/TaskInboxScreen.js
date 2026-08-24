@@ -23,6 +23,15 @@ const formatDate = (iso) => {
         + ' · ' + d.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' });
 };
 
+const sanitizeDecimal = (raw) => {
+    let filtered = raw.replace(/[^0-9.]/g, '');
+    const parts = filtered.split('.');
+    if (parts.length > 2) {
+        filtered = parts[0] + '.' + parts.slice(1).join('');
+    }
+    return filtered;
+};
+
 const TASK_LABELS = {
     restock:      { icon: 'bag-add-outline',    color: '#1d4ed8', label: 'Restock Order'  },
     audit_check:  { icon: 'checkmark-circle-outline', color: '#15803d', label: 'Audit Check' },
@@ -42,6 +51,8 @@ export default function TaskInboxScreen() {
     const [batchCosts, setBatchCosts]     = useState({});
     const [referenceNote, setReferenceNote] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [formError, setFormError] = useState('');     
+    const [fieldErrors, setFieldErrors] = useState({}); 
 
     // ── Fetch Tasks ──────────────────────────────────────────
     const fetchTasks = useCallback(async () => {
@@ -92,6 +103,8 @@ export default function TaskInboxScreen() {
         setBatchAmounts({});
         setBatchCosts({});
         setReferenceNote('');
+        setFormError('');       
+         setFieldErrors({}); 
         setModalVisible(true);
     };
 
@@ -106,45 +119,48 @@ export default function TaskInboxScreen() {
                 ? JSON.parse(activeTask.items_payload) 
                 : activeTask.items_payload;
         } catch (e) { items = []; }
-
+//a
         if (!items || items.length === 0) {
-            return Alert.alert("Error", "No items found in this AI task to restock.");
+            setFormError('No items found in this AI task to restock.');  // ← changed
+            return;      
         }
 
         // 2. STRICT VALIDATION & Formatting Payload for the Backend
         const formattedItems = [];
-        
+        const newFieldErrors = {};   
+        let hasError = false;         
+
         for (const item of items) {
             const id = item.raw_inventory_id;
             const addedStockStr = batchAmounts[id];
             const costAmountStr = batchCosts[id];
-            
-            // Check if fields are completely empty
-            if (!addedStockStr || addedStockStr.trim() === '') {
-                return Alert.alert("Validation Error", `Please enter the + Qty for: ${item.item_name}.`);
-            }
-            if (!costAmountStr || costAmountStr.trim() === '') {
-                return Alert.alert("Validation Error", `Please enter the Cost (₱) for: ${item.item_name}.`);
-            }
-            
             const addedStock = parseFloat(addedStockStr);
             const costAmount = parseFloat(costAmountStr);
-            
-            // Check if the inputs are actual valid numbers
-            if (isNaN(addedStock) || addedStock <= 0) {
-                return Alert.alert("Validation Error", `Quantity for ${item.item_name} must be a valid number greater than 0.`);
-            }
-            if (isNaN(costAmount) || costAmount < 0) {
-                return Alert.alert("Validation Error", `Cost for ${item.item_name} cannot be negative or invalid.`);
-            }
 
-            // Pack the data EXACTLY how the backend server expects it
-            formattedItems.push({
-                raw_inventory_id: id,
-                amount_added: addedStock,
-                cost_amount: costAmount
-            });
+            // ← changed: combine "empty" and "invalid number" into one flag per field
+            const qtyInvalid  = !addedStockStr || addedStockStr.trim() === '' || isNaN(addedStock) || addedStock <= 0;
+            const costInvalid = !costAmountStr || costAmountStr.trim() === '' || isNaN(costAmount) || costAmount < 0;
+
+            if (qtyInvalid || costInvalid) {                       
+                hasError = true;                                    
+                newFieldErrors[id] = { qty: qtyInvalid, cost: costInvalid };  
+            } else {                                                
+                formattedItems.push({
+                    raw_inventory_id: id,
+                    amount_added: addedStock,
+                    cost_amount: costAmount
+                });
+            }
         }
+
+        if (hasError) {                                            
+            setFieldErrors(newFieldErrors);                        
+            setFormError('Please fill in a valid Qty and Cost for every item');  
+            return;                                                  
+        }
+
+        setFieldErrors({});   
+        setFormError('');     
 
         // If validation passes, start submission process
         setIsSubmitting(true);
@@ -277,6 +293,12 @@ export default function TaskInboxScreen() {
                         <Text style={styles.modalTitle}>Confirm Restock</Text>
                         <Text style={styles.modalSubtitle}>Input the exact amounts bought and prices paid based on the AI order.</Text>
 
+                        {formError ? (                                             
+                        <View style={styles.formErrorBanner}>                     
+                            <Text style={styles.formErrorText}>{formError}</Text>   
+                        </View>                                                   
+                        ) : null}                                                   
+
                         <Text style={[styles.label, { marginTop: 15 }]}>Receipt / Reference Note (Optional)</Text>
                         <TextInput
                             style={styles.input}
@@ -294,19 +316,43 @@ export default function TaskInboxScreen() {
                                 <View key={item.raw_inventory_id} style={styles.batchRow}>
                                     <Text style={styles.batchItemName} numberOfLines={2}>{item.item_name}</Text>
                                     <View style={styles.batchInputContainer}>
-                                        <TextInput
-                                            style={[styles.input, { width: 80, marginRight: 5, marginBottom: 0 }]}
+                                            <TextInput
+                                            style={[
+                                                styles.input,
+                                                { width: 80, marginRight: 5, marginBottom: 0 },
+                                                fieldErrors[item.raw_inventory_id]?.qty ? { borderColor: '#EF4444' } : null 
+                                            ]}
                                             placeholder={`+ Qty (${item.unit})`}
-                                            keyboardType="numeric"
+                                            keyboardType="decimal-pad"
                                             value={batchAmounts[item.raw_inventory_id] || ''}
-                                            onChangeText={(text) => setBatchAmounts(prev => ({ ...prev, [item.raw_inventory_id]: text }))}
+                                            onChangeText={(text) => {
+                                                setBatchAmounts(prev => ({ ...prev, [item.raw_inventory_id]: sanitizeDecimal(text) }));
+                                                if (fieldErrors[item.raw_inventory_id]?.qty) {                               
+                                                    setFieldErrors(prev => ({                                                
+                                                        ...prev,                                                             
+                                                        [item.raw_inventory_id]: { ...prev[item.raw_inventory_id], qty: false }
+                                                    }));                                                                    
+                                                }                                                                           
+                                            }}
                                         />
                                         <TextInput
-                                            style={[styles.input, { width: 80, marginBottom: 0 }]}
+                                            style={[
+                                                styles.input,
+                                                { width: 80, marginBottom: 0 },
+                                                fieldErrors[item.raw_inventory_id]?.cost ? { borderColor: '#EF4444' } : null 
+                                            ]}
                                             placeholder="Cost (₱)"
-                                            keyboardType="numeric"
+                                            keyboardType="decimal-pad"
                                             value={batchCosts[item.raw_inventory_id] || ''}
-                                            onChangeText={(text) => setBatchCosts(prev => ({ ...prev, [item.raw_inventory_id]: text }))}
+                                            onChangeText={(text) => {                                                        /* ← changed */
+                                                setBatchCosts(prev => ({ ...prev, [item.raw_inventory_id]: sanitizeDecimal(text) }));
+                                                if (fieldErrors[item.raw_inventory_id]?.cost) {                              
+                                                    setFieldErrors(prev => ({                                                
+                                                        ...prev,                                                             
+                                                        [item.raw_inventory_id]: { ...prev[item.raw_inventory_id], cost: false }
+                                                    }));                                                                    
+                                                }                                                                           
+                                            }}
                                         />
                                     </View>
                                 </View>
@@ -362,7 +408,7 @@ const styles = StyleSheet.create({
     emptySubtitle: { fontSize: 14, color: '#64748b', textAlign: 'center', lineHeight: 22 },
 
     // ── Modal Styles ───────────────────────────
-    modalOverlay: { flex: 1, justifyContent: 'center', backgroundColor: 'rgba(15,23,42,0.75)', padding: 20 },
+    modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(15,23,42,0.75)', padding: 20 },
     modalContent: { backgroundColor: 'white', padding: 25, borderRadius: 16, width: '100%', maxWidth: 500, maxHeight: '90%' },
     modalTitle: { fontSize: 20, fontWeight: 'bold', color: '#0f172a' },
     modalSubtitle: { fontSize: 12, color: '#64748B', marginTop: 4, marginBottom: 10 },
@@ -375,6 +421,24 @@ const styles = StyleSheet.create({
     modalBtnRow: { flexDirection: 'row', gap: 10, marginTop: 10 },
     cancelBtn: { backgroundColor: '#f1f5f9', padding: 15, borderRadius: 8, alignItems: 'center' },
     submitBtn: { backgroundColor: '#27ae60', padding: 15, borderRadius: 8, alignItems: 'center' },
+
     cancelBtnText: { fontWeight: 'bold', color: '#64748b' },
     submitBtnText: { fontWeight: 'bold', color: 'white' },
+
+    
+    formErrorBanner: {
+        backgroundColor: '#FEF2F2',
+        borderWidth: 1.5,
+        borderColor: '#FCA5A5',
+        borderRadius: 8,
+        paddingVertical: 10,
+        paddingHorizontal: 14,
+        marginBottom: 12,
+    },
+    formErrorText: {
+        color: '#DC2626',
+        fontSize: 13,
+        fontWeight: '700',
+        textAlign: 'center',
+    },
 });
