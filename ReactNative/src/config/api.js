@@ -4,7 +4,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // 📱 DYNAMIC URL SWITCHER FOR MOBILE
 // __DEV__ is true when running via Expo on your computer, false in production
 export const BASE_URL = __DEV__ 
-  ? "http://192.168.86.5:5000"                   // <-- Your Local Laptop IP
+  ? "http://localhost:5000"  
+//? "http://192.168.86.5:5000"                   // <-- Your Local Laptop IP
   : "https://trysyncapp-v2.onrender.com"; // <-- Your Live Server
 
 const api = axios.create({

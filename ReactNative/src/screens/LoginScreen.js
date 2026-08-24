@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, TextInput, Alert, ActivityIndicator, Platform, SafeAreaView, KeyboardAvoidingView, Image, Modal } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, TextInput, Alert, ActivityIndicator, Platform, SafeAreaView, KeyboardAvoidingView, ScrollView, Image, Modal } from 'react-native';
 import { useAuth } from '../context/AuthContext';
 import EyeIcon    from '../../assets/images/noun-show-eye.svg';
 import EyeOffIcon from '../../assets/images/noun-eye-hide.svg';
@@ -26,8 +26,16 @@ export default function LoginScreen({ navigation }) {
   const [modalVisible, setModalVisible] = useState(false);
   const [modalContent, setModalContent] = useState({ title: '', message: '' });
 
+  const [showPassword, setShowPassword]               = useState(false);
   const [showNewPassword, setShowNewPassword]         = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  // UI-only: inline field validation messages (replaces the modal for empty fields)
+  const [usernameError, setUsernameError] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+
+  // UI-only: lets "next" on the username keyboard jump to the password field
+  const passwordRef = useRef(null);
 
   const [timer, setTimer]       = useState(300);
   const [canResend, setCanResend] = useState(false);
@@ -51,15 +59,23 @@ export default function LoginScreen({ navigation }) {
       setConfirmPassword('');
       setOtpInput('');
       setPassword('');
+      setUsernameError('');
+      setPasswordError('');
     }
   };
 
   const handleLogin = async () => {
     const cleanUser = username.trim();
-    if (!cleanUser || !password.trim()) {
-        showAlert("Validation Error", "Please enter your credentials.");
-        return;
-    }
+
+    // UI-only change: same guard as before, shown inline instead of in a modal
+    let hasEmptyField = false;
+    if (!cleanUser) { setUsernameError('Username is required.'); hasEmptyField = true; }
+    if (!password.trim()) { setPasswordError('Password is required.'); hasEmptyField = true; }
+    if (hasEmptyField) return;
+
+    setUsernameError('');
+    setPasswordError('');
+
     const originalAlert = global.alert;
     let interceptedMessage = null;
     global.alert = (msg) => { interceptedMessage = msg; };
@@ -84,9 +100,13 @@ export default function LoginScreen({ navigation }) {
   };
 
   const handleVerifyOtp = async () => {
-    const cleanOtp = String(otpInput).replace(/[^0-9]/g, '');
-    
-    if (cleanOtp.length !== 6) {
+  if (canResend) {
+    showAlert("Code Expired", "Please log in again to receive a new code.");
+    return;
+  }
+  const cleanOtp = String(otpInput).replace(/[^0-9]/g, '');
+  
+  if (cleanOtp.length !== 6) {
       showAlert("Invalid Code", "OTP must be exactly 6 digits.");
       return;
     }
@@ -161,7 +181,7 @@ export default function LoginScreen({ navigation }) {
 
   useEffect(() => {
     let interval;
-    if (step === 4 && timer > 0) {
+    if ((step === 2 || step === 4) && timer > 0) {
       interval = setInterval(() => setTimer(prev => prev - 1), 1000);
     } else if (timer === 0) {
       setCanResend(true);
@@ -169,9 +189,9 @@ export default function LoginScreen({ navigation }) {
     return () => clearInterval(interval);
   }, [step, timer]);
 
-  // Reset timer whenever we arrive at step 4
+  // Reset timer 
   useEffect(() => {
-    if (step === 4) {
+    if (step === 2 || step === 4) {
       setTimer(300);
       setCanResend(false);
     }
@@ -199,12 +219,17 @@ export default function LoginScreen({ navigation }) {
 
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.inner}>
-        
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
+        <ScrollView
+          contentContainerStyle={styles.inner}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+
         {step === 1 && (
           <View style={styles.header}>
             <Image 
-              source={require('../../assets/images/DuoSync Logo.png')}
+              source={require('../../assets/images/duosync-splash.png')}
               style={styles.logo}
               resizeMode="contain"
             />
@@ -219,34 +244,78 @@ export default function LoginScreen({ navigation }) {
             <TextInput 
               placeholder="Enter your username" 
               placeholderTextColor="#94A3B8"
-              style={styles.input} 
+              style={[styles.input, !!usernameError && styles.inputError, !!usernameError && { marginBottom: 6 }]} 
               value={username} 
-              onChangeText={setUsername} 
+              onChangeText={(text) => { setUsername(text); if (usernameError) setUsernameError(''); }} 
               autoCapitalize="none"
+              autoCorrect={false}
+              autoComplete="username"
+              textContentType="username"
+              autoFocus
+              returnKeyType="next"
+              blurOnSubmit={false}
+              onSubmitEditing={() => passwordRef.current?.focus()}
             />
-            
+            {!!usernameError && <Text style={styles.errorText}>{usernameError}</Text>}
+
             <Text style={styles.label}>Password</Text>
-            <TextInput 
-              placeholder="Enter your password" 
-              placeholderTextColor="#94A3B8"
-              style={styles.input} 
-              secureTextEntry 
-              value={password} 
-              onChangeText={setPassword}
-            />
-            <TouchableOpacity onPress={() => { setForgotType('password'); reset(3); }} style={{ alignItems: 'flex-end', marginBottom: 16 }}>
-              <Text style={styles.linkText}>Forgot Password?</Text>
+            <View style={[styles.passwordWrapper, !!passwordError && styles.inputError, { marginBottom: passwordError ? 6 : 4 }]}>
+              <TextInput 
+                ref={passwordRef}
+                placeholder="Enter your password" 
+                placeholderTextColor="#94A3B8"
+                style={styles.passwordInput} 
+                secureTextEntry={!showPassword}
+                value={password} 
+                onChangeText={(text) => { setPassword(text); if (passwordError) setPasswordError(''); }}
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoComplete="current-password"
+                textContentType="password"
+                returnKeyType="go"
+                onSubmitEditing={handleLogin}
+              />
+              <TouchableOpacity 
+                onPress={() => setShowPassword(!showPassword)} 
+                style={styles.eyeButton}
+                accessibilityRole="button"
+                accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                {showPassword
+                  ? <EyeOffIcon width={20} height={20} opacity={0.75} />
+                  : <EyeIcon    width={20} height={20} opacity={0.75} />}
+              </TouchableOpacity>
+            </View>
+            {!!passwordError && <Text style={styles.errorText}>{passwordError}</Text>}
+
+            <TouchableOpacity style={[styles.button, loading && { opacity: 0.7 }, { marginTop: 20 }]} onPress={handleLogin} disabled={loading}>
+              {loading ? (
+                <View style={styles.buttonLoadingRow}>
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                  <Text style={styles.buttonText}>SIGNING IN...</Text>
+                </View>
+              ) : (
+                <Text style={styles.buttonText}>LOGIN</Text>
+              )}
             </TouchableOpacity>
 
-            <TouchableOpacity style={[styles.button, loading && { opacity: 0.7 }]} onPress={handleLogin} disabled={loading}>
-              <Text style={styles.buttonText}>{loading ? 'SIGNING IN...' : 'LOGIN'}</Text>
-            </TouchableOpacity>
+            <View style={styles.linkRow}>
+              <TouchableOpacity 
+                onPress={() => { setForgotType('username'); reset(3); }}
+                hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
+              >
+                <Text style={styles.linkText}>Forgot username</Text>
+              </TouchableOpacity>
+              <Text style={styles.linkDivider}>·</Text>
+              <TouchableOpacity 
+                onPress={() => { setForgotType('password'); reset(3); }}
+                hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
+              >
+                <Text style={styles.linkText}>Forgot password</Text>
+              </TouchableOpacity>
+            </View>
 
-            <TouchableOpacity onPress={() => { setForgotType('username'); reset(3); }} style={{ alignItems: 'center', marginTop: 24 }}>
-              <Text style={{ color: '#64748B', fontSize: 14, fontWeight: '500' }}>Forgot Username?</Text>
-            </TouchableOpacity>
-
-            
           </View>
         )}
 
@@ -262,11 +331,30 @@ export default function LoginScreen({ navigation }) {
               autoCapitalize="none"
               autoCorrect={false}
               value={otpInput} 
-              onChangeText={setOtpInput} 
+              onChangeText={(text) => setOtpInput(text.replace(/[^0-9]/g, ''))}  
               maxLength={6} 
             />
+
+            <View style={{ alignItems: 'center', marginTop: 0, marginBottom: 16 }}>
+              {canResend ? (
+                <Text style={{ fontSize: 13, color: '#dc2626', fontWeight: '600', textAlign: 'center' }}>
+                  Code expired. Please log in again to get a new one.
+                </Text>
+              ) : (
+                <Text style={{ fontSize: 13, color: '#64748B' }}>
+                  Code expires in{' '}
+                  <Text style={{ fontWeight: '700', color: timer < 60 ? '#dc2626' : '#0f172a' }}>
+                    {formatTime(timer)}
+                  </Text>
+                </Text>
+              )}
+            </View>
             
-            <TouchableOpacity style={[styles.button, {backgroundColor: '#059669'}, loading && { opacity: 0.7 }]} onPress={handleVerifyOtp} disabled={loading}>
+            <TouchableOpacity 
+              style={[styles.button, {backgroundColor: '#059669'}, (loading || canResend) && { opacity: 0.7 }]} 
+              onPress={handleVerifyOtp} 
+              disabled={loading || canResend}
+            >
               <Text style={styles.buttonText}>{loading ? 'VERIFYING...' : 'VERIFY & ACCESS'}</Text>
             </TouchableOpacity>
             
@@ -308,18 +396,15 @@ export default function LoginScreen({ navigation }) {
               style={styles.otpInput} 
               keyboardType="number-pad"
               value={forgotOtp} 
-              onChangeText={setForgotOtp} 
+              onChangeText={(text) => setForgotOtp(text.replace(/[^0-9]/g, ''))} 
               maxLength={6} 
             />
-            <TouchableOpacity style={[styles.button, {backgroundColor: '#059669'}, loading && { opacity: 0.7 }]} onPress={handleForgotVerify} disabled={loading}>
-      <Text style={styles.buttonText}>{loading ? 'VERIFYING...' : 'VERIFY OTP'}</Text>
-    </TouchableOpacity>
 
     <View style={{ alignItems: 'center', marginTop: 16, marginBottom: 8 }}>
       {canResend ? (
         <TouchableOpacity onPress={handleResendOTP}>
-          <Text style={{ fontSize: 13, color: '#2563EB', fontWeight: '600' }}>
-            Didn't receive code? <Text style={{ fontWeight: '700' }}>Resend OTP</Text>
+          <Text style={{ fontSize: 13, color: '#eb2525', fontWeight: '600' }}>
+            OTP is Expired <Text style={{ fontWeight: '700', color: '#2563EB', textDecorationLine: 'underline' }}>Resend OTP?</Text>
           </Text>
         </TouchableOpacity>
       ) : (
@@ -331,6 +416,10 @@ export default function LoginScreen({ navigation }) {
         </Text>
       )}
     </View>
+
+    <TouchableOpacity style={[styles.button, {backgroundColor: '#059669'}, loading && { opacity: 0.7 }]} onPress={handleForgotVerify} disabled={loading}>
+      <Text style={styles.buttonText}>{loading ? 'VERIFYING...' : 'VERIFY OTP'}</Text>
+    </TouchableOpacity>
 
     <TouchableOpacity style={styles.cancelButton} onPress={() => reset(1)}>
       <Text style={styles.cancelText}>Cancel</Text>
@@ -360,10 +449,9 @@ export default function LoginScreen({ navigation }) {
 </TouchableOpacity>
     </View>
 
-    {/* ── Requirements Checklist ── */}
     <View style={styles.checklistContainer}>
       <Text style={[styles.checklistItem, { color: isLengthValid ? '#16a34a' : '#94a3b8' }]}>
-        {isLengthValid ? '✓' : '○'}  At least 5 characters
+        {isLengthValid ? '✓' : '○'}  At least 8 characters
       </Text>
       <Text style={[styles.checklistItem, { color: hasUppercase ? '#16a34a' : '#94a3b8' }]}>
         {hasUppercase ? '✓' : '○'}  One uppercase letter
@@ -412,6 +500,8 @@ export default function LoginScreen({ navigation }) {
           </View>
         )}
 
+        </ScrollView>
+
         <Text style={styles.footer}></Text>
         <Modal transparent={true} visible={modalVisible} animationType="fade">
           <View style={styles.modalOverlay}>
@@ -435,9 +525,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8FAFC' 
   },
   inner: {
-    flex: 1,
+    flexGrow: 1,
     justifyContent: 'center',
     paddingHorizontal: 32,
+    paddingVertical: 24,
   },
   header: {
     marginBottom: 48,
@@ -453,7 +544,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden', 
   },
   title: { 
-    fontSize: 40, 
+    fontSize: 32, 
     fontWeight: '800', 
     color: '#0F172A', 
     letterSpacing: -1,
@@ -505,9 +596,35 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
   },
   linkText: {
-    color: '#2563EB',
+    color: '#475569',
     fontSize: 14,
     fontWeight: '600',
+  },
+  linkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 24,
+  },
+  linkDivider: {
+    color: '#CBD5E1',
+    fontSize: 14,
+    marginHorizontal: 10,
+  },
+  buttonLoadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  inputError: {
+    borderColor: '#DC2626',
+  },
+  errorText: {
+    color: '#DC2626',
+    fontSize: 12,
+    fontWeight: '500',
+    marginLeft: 4,
+    marginBottom: 14,
   },
   otpHeader: { 
     fontSize: 20, 
@@ -596,24 +713,28 @@ const styles = StyleSheet.create({
     letterSpacing: 1
   },
   passwordWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
     backgroundColor: 'white',
     borderWidth: 1.5,
     borderColor: '#E2E8F0',
     borderRadius: 12,
     marginBottom: 12,
-    paddingRight: 12,
+    justifyContent: 'center',
+    overflow: 'hidden',
   },
   passwordInput: {
-    flex: 1,
     height: 55,
-    paddingHorizontal: 16,
+    paddingLeft: 16,
+    paddingRight: 48,
     fontSize: 16,
     color: '#0F172A',
+    backgroundColor: 'transparent',
   },
   eyeButton: {
-    padding: 8,
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    bottom: 0,
+    width: 44,
     justifyContent: 'center',
     alignItems: 'center',
   },

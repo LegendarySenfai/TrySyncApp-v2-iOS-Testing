@@ -60,7 +60,6 @@ function MilkteaTabs() {
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
-        headerRight: () => <LogoutButton />,
         tabBarIcon: ({ focused, color, size }) => {
           let iconName;
           if (route.name === 'POS')       iconName = 'cafe';
@@ -93,7 +92,6 @@ function LaundryTabs() {
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
-        headerRight: () => <LogoutButton />,
         tabBarIcon: ({ focused, color, size }) => {
           let iconName;
           if (route.name === 'POS')        iconName = 'water';

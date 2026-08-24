@@ -102,7 +102,8 @@ const loginOtpStore = {};
 // --- SECURITY: RATE LIMITING STORE (GLOBAL SCOPE) ---
 const loginAttempts = {}; 
 const MAX_ATTEMPTS = 3;
-const LOCKOUT_TIME = 30 * 60 * 1000; // 30 Minutes
+const LOCKOUT_TIME = 30 * 60 * 1000;  // 30 minutes — failed login lockout
+const OTP_EXPIRY   = 5 * 60 * 1000;   // 5 minutes — OTP validity
 
 // --- DATABASE CONNECTION ---
 // Single shared pool — see config/db.js. simulateData.js and triggerAI.js
@@ -506,7 +507,7 @@ app.post('/login', otpEmailLimiter, (req, res) => {
                             <h2 style="margin-top:0; color:#0f172a;">Secure Login</h2>
                             <p style="font-size: 15px; margin-bottom: 25px;">Hello ${user.first_name || user.username}, your DuoSync authentication code is:</p>
                             <div style="font-size: 32px; font-weight: bold; color: #3b82f6; letter-spacing: 5px; background: #f8fafc; padding: 15px; border-radius: 8px; border: 1px dashed #cbd5e1; display: inline-block; margin-bottom: 25px;">${loginOtp}</div>
-                            <p style="font-size: 13px; color: #64748b; margin: 0;">This code expires in 30 minutes.</p>
+                            <p style="font-size: 13px; color: #64748b; margin: 0;">This code expires in 5 minutes.</p>
                         </td>
                     </tr>
                 </table>
@@ -549,10 +550,10 @@ app.post('/verify-login-otp', authLimiter, (req, res) => {
             // BAN USER FOR 30 MINS
             loginAttempts[username] = { 
                 attempts: 3, 
-                lockoutUntil: Date.now() + LOCKOUT_TIME 
+                lockoutUntil: Date.now() + OTP_EXPIRY 
             };
             
-            return res.status(403).json({ message: "Too many wrong OTPs. Account locked for 30 minutes." });
+            return res.status(403).json({ message: "Too many wrong OTPs. Account locked for 5 minutes." });
         }
         return res.status(400).json({ message: `Invalid Code. ${remaining} attempts remaining.` });
     }
@@ -1082,8 +1083,8 @@ app.post('/forgot-verify-otp', authLimiter, (req, res) => {
         store.attempts += 1;
         if (store.attempts >= 3) {
             delete forgotOtpStore[email]; 
-            forgotLockout[email] = { lockoutUntil: Date.now() + LOCKOUT_TIME };
-            return res.status(403).json({ message: "Too many failed attempts. Reset locked for 30 minutes." });
+            forgotLockout[email] = { lockoutUntil: Date.now() + OTP_EXPIRY };
+            return res.status(403).json({ message: "Too many failed attempts. Reset locked for 5 minutes." });
         }
         return res.status(400).json({ message: `Invalid Code. ${3 - store.attempts} attempts remaining.` });
     }
