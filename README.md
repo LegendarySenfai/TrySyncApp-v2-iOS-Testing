@@ -1,5 +1,5 @@
 Instructions para ma-run niyo locally system. 
-
+a
 DATABASE INSTRUCTIONS:
 1. Unang una pull niyo muna tong repo main
 2. pag ka pull niyo, makikita niyo may bagong sql file sa database_backups, which is updated_db.sql
