@@ -437,7 +437,7 @@ export default function MenuManager() {
                                                 />
                                             ) : existingImageUrl ? (
                                                 <img 
-                                                    src={`${BASE_URL}/uploads/${existingImageUrl}`} 
+                                                    src={existingImageUrl.startsWith('http') ? existingImageUrl : `${BASE_URL}/uploads/${existingImageUrl}`} 
                                                     alt="product" 
                                                     style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 5 }} 
                                                 />
@@ -449,8 +449,8 @@ export default function MenuManager() {
                             
                             {/* Helper Text below file picker */}
                             {existingImageUrl && !selectedFile && (
-                                <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
-                                    Current File: <strong>{existingImageUrl}</strong>
+                                <div style={{ fontSize: 11, color: '#64748b', marginTop: 4, wordBreak: 'break-all' }}>
+                                    Current File: <strong>{existingImageUrl.startsWith('http') ? 'Cloudinary Hosted Image' : existingImageUrl}</strong>
                                 </div>
                             )}
                             {selectedFile && (

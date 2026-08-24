@@ -1,22 +1,63 @@
+require('dotenv').config({ override: true }); // 1. Load .env first
+
 const crypto = require('crypto');
 const fs = require('fs');
+const path = require('path');
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const bcrypt = require('bcrypt');
 const nodemailer = require('nodemailer');
-const multer = require('multer'); 
-const path = require('path');
 const rateLimit = require('express-rate-limit');
-require('dotenv').config({ override: true });
 const jwt = require('jsonwebtoken');
 
+// 2. Import Multer & Cloudinary
+const multer = require('multer');
+const cloudinary = require('cloudinary').v2;
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
+
+// 3. JWT Secret Validation
 if (!process.env.JWT_SECRET) {
     console.error('❌ JWT_SECRET is not set. Refusing to start with a hardcoded fallback secret.');
     console.error('   Set JWT_SECRET in your .env (local) or Render dashboard (deployed).');
     process.exit(1);
 }
 const JWT_SECRET = process.env.JWT_SECRET;
+
+// 4. Local Disk Storage Setup (for Existing Images & PDF Orders)
+const uploadDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir);
+    console.log("🛠️ Created missing uploads directory");
+}
+
+const localDiskStorage = multer.diskStorage({
+    destination: function (req, file, cb) {
+        cb(null, uploadDir); 
+    },
+    filename: function (req, file, cb) {
+        cb(null, Date.now() + path.extname(file.originalname)); 
+    }
+});
+const upload = multer({ storage: localDiskStorage });
+
+console.log("Cloudinary Check:", process.env.CLOUDINARY_CLOUD_NAME, process.env.CLOUDINARY_API_KEY ? "KEY_EXISTS" : "KEY_MISSING");
+
+// 5. Cloudinary Storage Setup (for New Admin Product Uploads)
+cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+const productCloudStorage = new CloudinaryStorage({
+    cloudinary: cloudinary,
+    params: {
+        folder: 'duosync_products',
+        allowed_formats: ['jpg', 'jpeg', 'png', 'webp', 'avif'],
+    },
+});
+const uploadProductImage = multer({ storage: productCloudStorage });
 
 const authenticateToken = (req, res, next) => {
     const authHeader = req.headers['authorization'];
@@ -52,6 +93,7 @@ app.use(cors({
     credentials: true
 }));
 app.use(bodyParser.json());
+app.use('/uploads', express.static(uploadDir));
 
 // --- RATE LIMITING ---
 // Stricter limiter for endpoints that send real emails (registration OTP,
@@ -76,24 +118,7 @@ const authLimiter = rateLimit({
     message: { message: "Too many attempts. Please wait a few minutes and try again." }
 });
 
-// --- MULTER IMAGE UPLOAD CONFIGURATION ---
-const uploadDir = path.join(__dirname, 'uploads');
-if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir);
-    console.log("🛠️ Created missing uploads directory");
-}
 
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, uploadDir); 
-  },
-  filename: function (req, file, cb) {
-    cb(null, Date.now() + path.extname(file.originalname)); 
-  }
-});
-const upload = multer({ storage: storage });
-
-app.use('/uploads', express.static(uploadDir));
 
 // --- IN-MEMORY STORAGE ---
 const tempRegistrationStore = {}; 
@@ -158,7 +183,7 @@ app.post('/register', otpEmailLimiter, async (req, res) => {
         return res.status(400).json({ message: "Invalid email format." });
     }
 
-    const checkSql = "SELECT * FROM users WHERE username = ?";
+    const checkSql = "SELECT * FROM users WHERE username = ? OR email = ?";
     db.query(checkSql, [username, email], async (err, data) => {
         if (data.length > 0) return res.status(400).json({ message: "Username or Email already exists!" });
 
@@ -412,6 +437,8 @@ app.post('/activate', authLimiter, async (req, res) => {
 app.post('/login', otpEmailLimiter, (req, res) => {
     const { username, password } = req.body;
 
+    const ATTEMPT_EXPIRY = 15 * 60 * 1000; // 15-minute rolling window
+
     // A. CHECK LOCKOUT STATUS
     const userAttempt = loginAttempts[username];
     if (userAttempt && userAttempt.lockoutUntil > Date.now()) {
@@ -421,11 +448,13 @@ app.post('/login', otpEmailLimiter, (req, res) => {
         });
     }
 
-    // B. If Lockout Expired, Reset it (THE FIX IS HERE)
-    // We only reset if it WAS actually locked (lockoutUntil !== 0)
-    // Previously, 0 <= Date.now() was true, causing immediate reset.
-    if (userAttempt && userAttempt.lockoutUntil !== 0 && userAttempt.lockoutUntil <= Date.now()) {
-        delete loginAttempts[username];
+    // B. RESET EXPIRED LOCKOUTS OR INACTIVE FAILED ATTEMPTS
+    if (userAttempt) {
+        if (userAttempt.lockoutUntil !== 0 && userAttempt.lockoutUntil <= Date.now()) {
+            delete loginAttempts[username];
+        } else if (userAttempt.lockoutUntil === 0 && userAttempt.lastAttempt && (Date.now() - userAttempt.lastAttempt > ATTEMPT_EXPIRY)) {
+            delete loginAttempts[username];
+        }
     }
 
     // C. NORMAL LOGIN PROCESS
@@ -452,11 +481,10 @@ app.post('/login', otpEmailLimiter, (req, res) => {
             
             // Increment or Initialize Attempts
             if (!loginAttempts[username]) {
-                console.log("   -> First failure. Initializing tracker.");
-                loginAttempts[username] = { attempts: 1, lockoutUntil: 0 };
+                loginAttempts[username] = { attempts: 1, lockoutUntil: 0, lastAttempt: Date.now() };
             } else {
                 loginAttempts[username].attempts += 1;
-                console.log(`   -> Incrementing failure count. Now at: ${loginAttempts[username].attempts}`);
+                loginAttempts[username].lastAttempt = Date.now();
             }
 
             const attempts = loginAttempts[username].attempts;
@@ -547,13 +575,14 @@ app.post('/verify-login-otp', authLimiter, (req, res) => {
         if (storedData.attempts >= 3) {
             delete loginOtpStore[username]; // Kill OTP session
             
-            // BAN USER FOR 30 MINS
+            // Lock account for 30 minutes
             loginAttempts[username] = { 
                 attempts: 3, 
-                lockoutUntil: Date.now() + OTP_EXPIRY 
+                lockoutUntil: Date.now() + LOCKOUT_TIME,
+                lastAttempt: Date.now()
             };
             
-            return res.status(403).json({ message: "Too many wrong OTPs. Account locked for 5 minutes." });
+            return res.status(403).json({ message: "Too many wrong OTPs. Account locked for 30 minutes." });
         }
         return res.status(400).json({ message: `Invalid Code. ${remaining} attempts remaining.` });
     }
@@ -674,44 +703,53 @@ app.get('/analytics', authenticateToken, async (req, res) => {
 // ==============================================================================
 app.get('/finance/ledger', authenticateToken, async (req, res) => {
     const { category, startDate, endDate } = req.query;
-    let params = [];
-    let dateFilterSales = "";
-    let dateFilterAudit = "";
+    let paramsSales = [];
+    let paramsExpenses = [];
+    let paramsAudits = [];
+    
+    let salesWhere = " WHERE is_voided = FALSE";
+    let expenseWhere = " WHERE 1=1";
+    let auditWhere = " WHERE total_loss > 0";
+
+    if (category && category !== 'all') {
+        salesWhere += " AND category = ?";
+        paramsSales.push(category);
+
+        expenseWhere += " AND (category = ? OR category = 'general')";
+        paramsExpenses.push(category);
+
+        auditWhere += " AND shop_category = ?";
+        paramsAudits.push(category);
+    }
 
     if (startDate && endDate) {
-        dateFilterSales = " AND DATE(DATE_ADD(timestamp, INTERVAL 8 HOUR)) >= ? AND DATE(DATE_ADD(timestamp, INTERVAL 8 HOUR)) <= ?";
-        dateFilterAudit = " AND DATE(audit_date) >= ? AND DATE(audit_date) <= ?";
-        params.push(startDate, endDate);
+        salesWhere += " AND DATE(DATE_ADD(timestamp, INTERVAL 8 HOUR)) >= ? AND DATE(DATE_ADD(timestamp, INTERVAL 8 HOUR)) <= ?";
+        paramsSales.push(startDate, endDate);
+
+        expenseWhere += " AND DATE(DATE_ADD(timestamp, INTERVAL 8 HOUR)) >= ? AND DATE(DATE_ADD(timestamp, INTERVAL 8 HOUR)) <= ?";
+        paramsExpenses.push(startDate, endDate);
+
+        auditWhere += " AND DATE(audit_date) >= ? AND DATE(audit_date) <= ?";
+        paramsAudits.push(startDate, endDate);
     }
 
     try {
-        // 🛠️ APPLIED FIX: Using 'id' instead of 'receipt_number' and providing a fallback for 'staff'
-        // 1. Fetch Sales (Cash In & COGS)
-        let salesQuery = `SELECT timestamp as date, 'SALE' as type, id as ref_id, 'System/Staff' as staff, details as description, amount as cash_in, total_cogs as cogs_out, 0 as expense_out FROM sales_log WHERE is_voided = FALSE ${category && category !== 'all' ? `AND category = '${category}'` : ''} ${dateFilterSales}`;
-        const [sales] = await db.promise().query(salesQuery, params);
+        const salesQuery = `SELECT timestamp as date, 'SALE' as type, id as ref_id, 'System/Staff' as staff, details as description, amount as cash_in, total_cogs as cogs_out, 0 as expense_out FROM sales_log ${salesWhere}`;
+        const expenseQuery = `SELECT timestamp as date, 'EXPENSE' as type, id as ref_id, 'Admin' as staff, description, 0 as cash_in, 0 as cogs_out, amount as expense_out FROM store_expenses ${expenseWhere}`;
+        const auditQuery = `SELECT audit_date as date, 'VARIANCE_LOSS' as type, id as ref_id, staff_name as staff, variance_reason as description, 0 as cash_in, 0 as cogs_out, total_loss as expense_out FROM shift_audits ${auditWhere}`;
 
-        // 2. Fetch Store Expenses (Cash Out)
-        let expenseQuery = `SELECT timestamp as date, 'EXPENSE' as type, id as ref_id, 'Admin' as staff, description, 0 as cash_in, 0 as cogs_out, amount as expense_out FROM store_expenses WHERE 1=1 ${category && category !== 'all' ? `AND (category = '${category}' OR category = 'general')` : ''} ${dateFilterSales}`;
-        const [expenses] = await db.promise().query(expenseQuery, params);
+        const [sales] = await db.promise().query(salesQuery, paramsSales);
+        const [expenses] = await db.promise().query(expenseQuery, paramsExpenses);
+        const [audits] = await db.promise().query(auditQuery, paramsAudits);
 
-        // 3. Fetch Z-Reading Variances (Cash Loss)
-        let auditQuery = `SELECT audit_date as date, 'VARIANCE_LOSS' as type, id as ref_id, staff_name as staff, variance_reason as description, 0 as cash_in, 0 as cogs_out, total_loss as expense_out FROM shift_audits WHERE total_loss > 0 ${category && category !== 'all' ? `AND shop_category = '${category}'` : ''} ${dateFilterAudit}`;
-        const [audits] = await db.promise().query(auditQuery, params);
-
-        // Combine all arrays
-        let ledger = [...sales, ...expenses, ...audits];
-
-        // Calculate Net Impact for each row and sort by Date (Newest First)
-        ledger = ledger.map(row => {
+        let ledger = [...sales, ...expenses, ...audits].map(row => {
             let desc = row.description;
             if (row.type === 'SALE') {
                 try {
                     const parsed = JSON.parse(row.description);
-                    desc = Array.isArray(parsed) ? parsed.map(i => `${i.qty}x ${i.item_name}`).join(', ') : 'Order Items';
+                    desc = Array.isArray(parsed) ? parsed.map(i => `${i.qty}x ${i.item_name}`).join(', ') : (parsed.items ? parsed.items.map(i => `${i.qty}x ${i.item_name}`).join(', ') : 'Order Items');
                 } catch(e) {}
             }
-
-            // 🛠️ APPLIED FIX: Zero-pad the ID to match the Sales & Deductions format exactly
             const paddedId = String(row.ref_id).padStart(5, '0');
             const formattedRef = row.type === 'SALE' ? `#TXN-${paddedId}` : (row.type === 'EXPENSE' ? `#EXP-${paddedId}` : `#ZRD-${paddedId}`);
 
@@ -743,12 +781,12 @@ app.get('/inventory', authenticateToken, (req, res) => {
 
 app.post('/inventory/add', authenticateToken, (req, res) => {
     const { item_name, category, quantity, unit, price } = req.body;
-    if (parseFloat(total_quantity) === 0) {
-    return res.status(400).json({ message: "Quantity cannot be zero." });
-}
+    if (parseFloat(quantity) <= 0 || isNaN(parseFloat(quantity))) {
+        return res.status(400).json({ message: "Quantity must be greater than zero." });
+    }
     const sql = "INSERT INTO inventory (`item_name`, `category`, `quantity`, `unit`, `price`) VALUES (?, ?, ?, ?, ?)";
     db.query(sql, [item_name, category, quantity, unit, price], (err) => {
-        if (err) return res.status(500).json({message: "Database Error", error: err});
+        if (err) return res.status(500).json({ message: "Database Error", error: err });
         logActivity('Admin', 'ADD_ITEM', `Added ${item_name}`);
         res.json({ message: "Item Added" });
     });
@@ -1247,6 +1285,23 @@ app.get('/inventory/raw', authenticateToken, (req, res) => {
     });
 });
 
+// --- MOBILE: GET MISSING RAW INGREDIENTS FOR A SPECIFIC PRODUCT ---
+app.get('/inventory/missing-ingredients/:productId', authenticateToken, async (req, res) => {
+    const { productId } = req.params;
+    try {
+        const [rows] = await db.promise().query(`
+            SELECT r.id, r.item_name, r.unit, r.stock_quantity, pr.amount_needed 
+            FROM product_recipes pr 
+            JOIN raw_inventory r ON pr.raw_inventory_id = r.id 
+            WHERE pr.product_id = ?
+        `, [productId]);
+        res.json(rows);
+    } catch (err) {
+        console.error("Missing ingredients error:", err);
+        res.status(500).json({ message: "Failed to fetch missing ingredients." });
+    }
+});
+
 // 🌟 --- GLOBAL ADMIN ROUTE PROTECTION --- 🌟
 // This applies the JWT check to ALL routes below this line that start with /admin
 app.use('/admin', authenticateToken);
@@ -1254,10 +1309,12 @@ app.use('/admin', authenticateToken);
 // --- ADMIN: CREATE NEW PRODUCT & RECIPE ---
 // 🌟 Added upload.single('image') middleware
 // REPLACE ROUTE: /admin/products/create
-app.post('/admin/products/create', upload.single('image'), async (req, res) => {
+app.post('/admin/products/create', uploadProductImage.single('image'), async (req, res) => {
     const { product_name, category, sub_category, base_price, allow_modifiers } = req.body;
     const ingredients = JSON.parse(req.body.ingredients);
-    const image_url = req.file ? req.file.filename : null;
+    
+    // Saves Cloudinary HTTPS URL if uploaded, null if no image attached
+    const image_url = req.file ? req.file.path : null;
 
     db.getConnection((err, connection) => {
         if (err) return res.status(500).json({ message: "DB Connection Error" });
@@ -1298,8 +1355,12 @@ app.post('/admin/products/create', upload.single('image'), async (req, res) => {
             } catch (error) {
                 connection.rollback(() => {
                     connection.release();
-                    console.error("Recipe Creation Failed:", error);
-                    res.status(500).json({ message: "Failed to create recipe.", error });
+                    console.error("🚨 REAL ERROR MESSAGE:", error.message || error);
+                    console.error("🚨 SQL / ERROR STACK:", error.stack || error);
+                    res.status(500).json({ 
+                        message: "Failed to create recipe.", 
+                        details: error.message || String(error) 
+                    });
                 });
             }
         });
@@ -1349,7 +1410,7 @@ app.get('/admin/products', async (req, res) => {
 // --- ADMIN: UPDATE PRODUCT AND RECIPE ---
 // 🌟 Added upload.single('image') middleware
 // REPLACE ROUTE: /admin/products/update/:id
-app.put('/admin/products/update/:id', upload.single('image'), async (req, res) => {
+app.put('/admin/products/update/:id', uploadProductImage.single('image'), async (req, res) => {
     const { id } = req.params;
     const { product_name, category, sub_category, base_price, allow_modifiers, is_active } = req.body;
     const ingredients = JSON.parse(req.body.ingredients);
@@ -1366,16 +1427,20 @@ app.put('/admin/products/update/:id', upload.single('image'), async (req, res) =
             try {
                 if (req.file) {
                     const [oldProd] = await connection.promise().query("SELECT image_url FROM products WHERE id = ?", [id]);
-                    if (oldProd[0].image_url) {
-                        const oldImagePath = path.join(__dirname, 'uploads', oldProd[0].image_url);
+                    const oldUrl = oldProd[0]?.image_url;
+
+                    // Only unlink if it was an old local image file (not an external Cloudinary URL)
+                    if (oldUrl && !oldUrl.startsWith('http')) {
+                        const oldImagePath = path.join(__dirname, 'uploads', oldUrl);
                         if (fs.existsSync(oldImagePath)) {
                             fs.unlinkSync(oldImagePath); 
                         }
                     }
 
+                    const newImageUrl = req.file.path; // New Cloudinary URL
                     await connection.promise().query(
                         "UPDATE products SET product_name = ?, category = ?, sub_category = ?, base_price = ?, allow_modifiers = ?, is_active = ?, image_url = ? WHERE id = ?",
-                        [product_name, category, sub_category, base_price, allow_modifiers, is_active, req.file.filename, id]
+                        [product_name, category, sub_category, base_price, allow_modifiers, is_active, newImageUrl, id]
                     );
                 } else {
                     await connection.promise().query(
@@ -1794,78 +1859,8 @@ app.get('/admin/audits', (req, res) => {
 });
 
 
-// --- MOBILE: BATCH RESTOCK (WITH COST TRACKING) ---
-app.post('/inventory/batch-restock', authenticateToken, (req, res) => {
-    const { staff_name, reference_note, items } = req.body;
-    
-    if (!items || items.length === 0) {
-        return res.status(400).json({ message: "No items provided for restock." });
-    }
 
-    db.getConnection((err, connection) => {
-        if (err) return res.status(500).json({ message: "DB Connection Error" });
 
-        connection.beginTransaction(async (err) => {
-            if (err) {
-                connection.release();
-                return res.status(500).json({ message: "Database Error" });
-            }
-            try {
-                let totalRestockCost = 0;
-                let logDetails = [];
-
-                for (let item of items) {
-                    const rawId = item.raw_inventory_id;
-                    const addedStock = parseFloat(item.amount_added);
-                    const costAmount = parseFloat(item.cost_amount || 0);
-
-                    // 1. Update the stock quantity
-                    await connection.promise().query(
-                        "UPDATE raw_inventory SET stock_quantity = stock_quantity + ? WHERE id = ?",
-                        [addedStock, rawId]
-                    );
-
-                    // 2. Fetch the category and unit to log it properly
-                    const [rawItemData] = await connection.promise().query(
-                        "SELECT item_name, unit, category FROM raw_inventory WHERE id = ?", 
-                        [rawId]
-                    );
-
-                    if (rawItemData.length > 0) {
-                        const shop_category = rawItemData[0].category;
-                        totalRestockCost += costAmount;
-                        logDetails.push(`${addedStock} ${rawItemData[0].unit} of ${rawItemData[0].item_name}`);
-
-                        // 3. Log the restock in emergency_restocks so it shows on the dashboard logs
-                        await connection.promise().query(
-                            "INSERT INTO emergency_restocks (staff_name, shop_category, item_name, amount_added, is_acknowledged) VALUES (?, ?, ?, ?, ?)",
-                            [staff_name || 'Staff User', shop_category, `${rawItemData[0].item_name} (${rawItemData[0].unit})`, addedStock, 1] 
-                        );
-                    }
-                }
-
-                const summaryText = logDetails.join(', ');
-
-                // 4. Log the total transaction in activity logs
-                await connection.promise().query(
-                    "INSERT INTO activity_logs (username, action, details) VALUES (?, 'STOCK_DELIVERY', ?)",
-                    [staff_name || 'Staff', `Receipt/Ref: ${reference_note || 'None'} | Items: ${summaryText} | Total Cost: ₱${totalRestockCost}`]
-                );
-
-                connection.commit(() => {
-                    connection.release();
-                    res.json({ message: "Batch Restock Successfully Logged!" });
-                });
-            } catch (error) {
-                connection.rollback(() => {
-                    connection.release();
-                    console.error("Batch Restock Error:", error);
-                    res.status(500).json({ error: error.message });
-                });
-            }
-        });
-    });
-});
 
 // --- MOBILE: EMERGENCY RESTOCK ---
 // REPLACE ROUTE: /inventory/emergency-restock
@@ -2027,7 +2022,16 @@ app.use('/api', require('./services/aiInsightsService')(db));
 
 app.use('/api/ai', require('./services/aiDelegationService')(db, __dirname));
 
+// 🌟 GLOBAL ERROR HANDLER FOR MULTER & CLOUDINARY
+app.use((err, req, res, next) => {
+    console.error("🚨 UPLOAD / SERVER ERROR DETAILS:", JSON.stringify(err, null, 2) || err);
+    res.status(500).json({ 
+        message: err.message || "File upload or internal server error", 
+        error: err 
+    });
+});
+
 const PORT = process.env.PORT || 5000; 
 app.listen(PORT, () => {
-    console.log(`🚀 TriSync Secure Server running on ${PORT}`);
+    console.log(`🚀 DuoSync Secure Server running on ${PORT}`);
 });
