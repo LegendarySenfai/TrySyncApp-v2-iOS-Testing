@@ -364,7 +364,7 @@ export default function UniversalPOS({ category, title, onBeforeCheckout }) {
       if (singleUnitCost > maxItemCost) maxItemCost = singleUnitCost;
       return total + (singleUnitCost * item.qty);
     }, 0);
-    if (!discountApplied || cart.length === 0) return { subtotal, discountAmount: 0, finalTotal: subtotal };
+    if (category === 'laundry' || !discountApplied || cart.length === 0) return { subtotal, discountAmount: 0, finalTotal: subtotal };
     const vatExemptItem = maxItemCost / 1.12;
     const pureDiscount = vatExemptItem * 0.20;
     const totalDeduction = (maxItemCost - vatExemptItem) + pureDiscount;
@@ -378,9 +378,9 @@ export default function UniversalPOS({ category, title, onBeforeCheckout }) {
       const payload = {
         cart_items: cart,
         total_revenue: totals.finalTotal,
-        discount_type: discountApplied ? discountDetails.type : null,
-        customer_name: discountApplied ? discountDetails.name : null,
-        customer_id: discountApplied ? discountDetails.id : null,
+        discount_type: null,
+        customer_name: null,
+        customer_id: null,
       };
       const result = await onBeforeCheckout(payload);
       if (result?.success) {
@@ -392,7 +392,7 @@ export default function UniversalPOS({ category, title, onBeforeCheckout }) {
             totals: totals,
             date: new Date().toLocaleString(),
             transactionId: result.ticket || `LND-${Math.floor(Math.random() * 90000) + 10000}`,
-            discountAmount: discountApplied ? totals.discountAmount : 0,
+            discountAmount: 0,
             isLaundry: true,
             customerName: result.customer || "Walk-in",
             pickupDate: result.pickupDate || "TBA",
@@ -898,35 +898,37 @@ export default function UniversalPOS({ category, title, onBeforeCheckout }) {
             <Text style={{ fontSize: 14, color: '#64748b' }}>₱{totals.subtotal.toFixed(2)}</Text>
           </View>
 
-          {discountApplied ? (
-            <View style={{ marginBottom: 15, padding: 10, backgroundColor: '#fee2e2', borderRadius: 5 }}>
-    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 5 }}>
-      <Text style={{ color: '#e74c3c', fontSize: 11, fontWeight: 'bold', flex: 1, marginRight: 8 }}>
-        - {discountDetails.type}{'\n'}(VAT Exc. + 20%)
-      </Text>
-      <Text style={{ color: '#e74c3c', fontSize: 12, fontWeight: 'bold', flexShrink: 0 }}>
-        -₱{totals.discountAmount.toFixed(2)}
-      </Text>
-    </View>
-    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-      <Text style={{ color: '#e74c3c', fontSize: 10, flex: 1, marginRight: 8 }} numberOfLines={1} ellipsizeMode="tail">
-        {discountDetails.name} ({discountDetails.id})
-      </Text>
-      <TouchableOpacity onPress={() => setDiscountApplied(false)}>
-        <Text style={{ color: '#94a3b8', fontSize: 10, textDecorationLine: 'underline' }}>Remove</Text>
-      </TouchableOpacity>
-    </View>
-  </View>
-          ) : (
-            <TouchableOpacity
-              onPress={() => setShowDiscountModal(true)}
-              disabled={cart.length === 0}
-              style={[styles.discountTriggerBtn, cart.length === 0 && styles.discountTriggerBtnDisabled]}
-            >
-              <Text style={[styles.discountTriggerText, cart.length === 0 && styles.discountTriggerTextDisabled]}>
-                {cart.length === 0 ? 'Add items to apply a discount' : 'Apply Senior / PWD Discount'}
-              </Text>
-            </TouchableOpacity>
+          {category !== 'laundry' && (
+            discountApplied ? (
+              <View style={{ marginBottom: 15, padding: 10, backgroundColor: '#fee2e2', borderRadius: 5 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 5 }}>
+                  <Text style={{ color: '#e74c3c', fontSize: 11, fontWeight: 'bold', flex: 1, marginRight: 8 }}>
+                    - {discountDetails.type}{'\n'}(VAT Exc. + 20%)
+                  </Text>
+                  <Text style={{ color: '#e74c3c', fontSize: 12, fontWeight: 'bold', flexShrink: 0 }}>
+                    -₱{totals.discountAmount.toFixed(2)}
+                  </Text>
+                </View>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text style={{ color: '#e74c3c', fontSize: 10, flex: 1, marginRight: 8 }} numberOfLines={1} ellipsizeMode="tail">
+                    {discountDetails.name} ({discountDetails.id})
+                  </Text>
+                  <TouchableOpacity onPress={() => setDiscountApplied(false)}>
+                    <Text style={{ color: '#94a3b8', fontSize: 10, textDecorationLine: 'underline' }}>Remove</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : (
+              <TouchableOpacity
+                onPress={() => setShowDiscountModal(true)}
+                disabled={cart.length === 0}
+                style={[styles.discountTriggerBtn, cart.length === 0 && styles.discountTriggerBtnDisabled]}
+              >
+                <Text style={[styles.discountTriggerText, cart.length === 0 && styles.discountTriggerTextDisabled]}>
+                  {cart.length === 0 ? 'Add items to apply a discount' : 'Apply Senior / PWD Discount'}
+                </Text>
+              </TouchableOpacity>
+            )
           )}
 
           <View style={[styles.totalRow, { borderTopWidth: 1, borderColor: '#eee', paddingTop: 10 }]}>
