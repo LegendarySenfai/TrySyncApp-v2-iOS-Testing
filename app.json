@@ -9,7 +9,8 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.duosync.mobile"
     },
     "android": {
       "adaptiveIcon": {
@@ -27,7 +28,6 @@
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
-      "expo-router",
       [
         "expo-splash-screen",
         {
@@ -46,11 +46,7 @@
       "reactCompiler": true
     },
     "extra": {
-      "router": {},
-      "eas": {
-        "projectId": "98144954-8f6d-48f1-a725-336cc0175cef"
-      }
-    },
-    "owner": "senfai"
+      "router": {}
+    }
   }
 }

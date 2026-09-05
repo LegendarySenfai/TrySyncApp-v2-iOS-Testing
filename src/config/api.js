@@ -2,10 +2,10 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // 📱 DYNAMIC URL SWITCHER FOR MOBILE
-// __DEV__ is true when running via Expo on your computer, false in production
-export const BASE_URL = __DEV__ 
-  ? "http://192.168.86.2:5000"                   // <-- Your Local Laptop IP
-  : "https://trysyncapp-v2.onrender.com"; // <-- Your Live Server
+// 📱 Toggle between local IP and live server by commenting/uncommenting:
+export const BASE_URL = 
+  // "http://192.168.86.2:5000";          // <-- Local Laptop IP
+  "https://trysyncapp-v2.onrender.com"; // <-- Live Deployed Server
 
 const api = axios.create({
   baseURL: BASE_URL, 

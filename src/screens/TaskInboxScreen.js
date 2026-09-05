@@ -81,18 +81,24 @@ export default function TaskInboxScreen() {
     };
 
     // ── Open PDF ─────────────────────────────────────────────
-    const handleOpenPDF = async (task) => {
-        const fullUrl = `${BASE_URL}${task.pdf_file_url}`;
-        try {
-            const supported = await Linking.canOpenURL(fullUrl);
-            if (!supported) {
-                return Alert.alert('Cannot Open', `No app found to open PDF.\n\nURL: ${fullUrl}`);
+        const handleOpenPDF = async (task) => {
+            if (!task.pdf_file_url) {
+                return Alert.alert('No File', 'No PDF attached to this task.');
             }
-            await Linking.openURL(fullUrl);
-        } catch (err) {
-            Alert.alert('Error', `Failed to open PDF: ${err.message}`);
-        }
-    };
+            const fullUrl = task.pdf_file_url.startsWith('http')
+                ? task.pdf_file_url
+                : `${BASE_URL}${task.pdf_file_url}`;
+
+            try {
+                const supported = await Linking.canOpenURL(fullUrl);
+                if (!supported) {
+                    return Alert.alert('Cannot Open', `No app found to open PDF.\n\nURL: ${fullUrl}`);
+                }
+                await Linking.openURL(fullUrl);
+            } catch (err) {
+                Alert.alert('Error', `Failed to open PDF: ${err.message}`);
+            }
+        };
 
     // ── Open Modal ───────────────────────────────────────────
     const openRestockModal = (task) => {
@@ -125,19 +131,18 @@ export default function TaskInboxScreen() {
             return;      
         }
 
-        // 2. STRICT VALIDATION & Formatting Payload for the Backend
+// 2. STRICT VALIDATION & Formatting Payload for the Backend
         const formattedItems = [];
         const newFieldErrors = {};   
         let hasError = false;         
 
         for (const item of items) {
-            const id = item.raw_inventory_id;
+            const id = item.raw_inventory_id || item.id;
             const addedStockStr = batchAmounts[id];
             const costAmountStr = batchCosts[id];
             const addedStock = parseFloat(addedStockStr);
             const costAmount = parseFloat(costAmountStr);
 
-            // ← changed: combine "empty" and "invalid number" into one flag per field
             const qtyInvalid  = !addedStockStr || addedStockStr.trim() === '' || isNaN(addedStock) || addedStock <= 0;
             const costInvalid = !costAmountStr || costAmountStr.trim() === '' || isNaN(costAmount) || costAmount < 0;
 
@@ -146,27 +151,28 @@ export default function TaskInboxScreen() {
                 newFieldErrors[id] = { qty: qtyInvalid, cost: costInvalid };  
             } else {                                                
                 formattedItems.push({
-                    raw_inventory_id: id,
-                    amount_added: addedStock,
-                    cost_amount: costAmount
+                    id: id,
+                    name: item.item_name || item.name || 'Ingredient',
+                    unit: item.unit || '',
+                    amount: addedStock,
+                    total_cost_paid: costAmount
                 });
             }
         }
 
         if (hasError) {                                            
             setFieldErrors(newFieldErrors);                        
-            setFormError('Please fill in a valid Qty and Cost for every item');  
+            setFormError('Please fill in a valid Qty and Cost for every item.');  
             return;                                                  
         }
 
         setFieldErrors({});   
         setFormError('');     
 
-        // If validation passes, start submission process
         setIsSubmitting(true);
 
         try {
-            // 3. Post to the backend route
+            // 3. Post to backend matching the exact schema expected by /inventory/batch-restock
             await api.post('/inventory/batch-restock', {
                 items: formattedItems,
                 reference_note: referenceNote || 'AI Delegated Restock',
@@ -180,11 +186,11 @@ export default function TaskInboxScreen() {
             setModalVisible(false);
             setActiveTask(null);
             setTasks(prev => prev.filter(t => t.id !== activeTask.id));
-            Alert.alert("Success", "Restock officially logged! The inventory and expenses have been updated.");
+            Alert.alert("Success", "Restock officially logged! Inventory and average costs have been updated.");
 
         } catch (err) {
-            // Extract exact error message from backend
-            const errorMsg = err.response?.data?.message || err.response?.data?.error || err.message || "Failed to log restock.";
+            const rawErr = err.response?.data?.message || err.response?.data?.error || err.message || "Failed to log restock.";
+            const errorMsg = typeof rawErr === 'string' ? rawErr : JSON.stringify(rawErr);
             Alert.alert("Server Error", errorMsg);
         } finally {
             setIsSubmitting(false);
