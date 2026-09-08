@@ -1,7 +1,8 @@
 {
-  "expo": {
+"expo": {
     "name": "DuoSync",
     "slug": "DuoSync",
+    "owner": "KantoCoders",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
