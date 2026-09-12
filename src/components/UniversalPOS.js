@@ -179,17 +179,36 @@ export default function UniversalPOS({ category, title, onBeforeCheckout }) {
   }, [refreshPendingCount, syncOfflineQueue]);
 
   // ─── EXISTING EFFECTS (untouched) ───────────────────────────
-  React.useEffect(() => {
+React.useEffect(() => {
     navigation.setOptions({
-      headerTitle: `Welcome ${user?.username || 'Staff'}`,
+      headerTitleAlign: 'left',
+      headerTitle: () => (
+        <View style={{ maxWidth: 170 }}>
+          <Text numberOfLines={1} style={{ fontSize: 15, fontWeight: '800', color: '#0f172a' }}>
+            Welcome, {user?.username || 'Staff'}
+          </Text>
+        </View>
+      ),
       headerRight: () => (
-        <TouchableOpacity onPress={handleInitiateEndShift} style={{ marginRight: 15, flexDirection: 'row', alignItems: 'center' }}>
-          <Text style={{ color: '#e74c3c', marginRight: 5, fontWeight: 'bold' }}>END SHIFT</Text>
-          <Ionicons name="log-out-outline" size={26} color="#e74c3c" />
+        <TouchableOpacity 
+          onPress={handleInitiateEndShift} 
+          style={{ 
+            marginRight: 14, 
+            flexDirection: 'row', 
+            alignItems: 'center', 
+            backgroundColor: '#fee2e2', 
+            paddingHorizontal: 10, 
+            paddingVertical: 6, 
+            borderRadius: 8,
+            gap: 4
+          }}
+        >
+          <Text style={{ color: '#dc2626', fontSize: 12, fontWeight: '800' }}>END SHIFT</Text>
+          <Ionicons name="log-out-outline" size={18} color="#dc2626" />
         </TouchableOpacity>
       )
     });
-  });
+  }, [user?.username]);
 
   React.useEffect(() => {
     const checkActiveShift = async () => {
@@ -569,6 +588,7 @@ export default function UniversalPOS({ category, title, onBeforeCheckout }) {
   };
 
   const handleInitiateEndShift = async () => {
+    setIsSubmittingAudit(false);
     try {
       const [invRes, summaryRes] = await Promise.all([
         api.get(`/inventory/raw?category=${category}`),
@@ -627,25 +647,39 @@ export default function UniversalPOS({ category, title, onBeforeCheckout }) {
       numericCounts[id] = parseFloat(auditCounts[id]) || 0;
     });
     try {
-      await api.post('/audit/submit', {
-        staff_name:      user?.username || "Unknown Staff",
-        shop_category:   category,
-        physical_counts: numericCounts,
-        starting_cash:   parseFloat(startingCash) || 0,
-        actual_cash:     parseFloat(endingCash)   || 0,
-        variance_reason: varianceReason.trim() || null,
-      });
-      setShowAuditModal(false);
-      await AsyncStorage.removeItem(`shiftActive_${category}`);
-      await AsyncStorage.removeItem(`startingCash_${category}`);
-      showResponsiveAlert("Success", "Remittance submitted successfully.", () => {
-        logout();
-      });
-    } catch (err) {
-      showResponsiveAlert("Server Error", err.response?.data?.message || "Failed to submit audit.");
-      setIsSubmittingAudit(false);
-    }
-  };
+          await api.post('/audit/submit', {
+            staff_name:      user?.username || "Unknown Staff",
+            shop_category:   category,
+            physical_counts: numericCounts,
+            starting_cash:   parseFloat(startingCash) || 0,
+            actual_cash:     parseFloat(endingCash)   || 0,
+            variance_reason: varianceReason.trim() || null,
+          });
+          
+          setIsSubmittingAudit(false);
+          setShowAuditModal(false);
+          await AsyncStorage.removeItem(`shiftActive_${category}`);
+          await AsyncStorage.removeItem(`startingCash_${category}`);
+          setShiftStarted(false);
+          setEndingCash('');
+          setAuditCounts({});
+
+          Alert.alert(
+            "Remittance Submitted",
+            "Shift closed and remittance submitted successfully.",
+            [
+              {
+                text: "Log Out",
+                onPress: () => logout()
+              }
+            ],
+            { cancelable: false }
+          );
+        } catch (err) {
+          setIsSubmittingAudit(false);
+          showResponsiveAlert("Server Error", err.response?.data?.message || "Failed to submit audit.");
+        }
+      };
 
   // ─── EXISTING UI GROUPING LOGIC (untouched) ──────────────────
   const filteredItems = items.filter(i => i.product_name.toLowerCase().includes(searchText.toLowerCase()) && i.category === category);
@@ -1134,16 +1168,23 @@ export default function UniversalPOS({ category, title, onBeforeCheckout }) {
                   </View>
                 )}
                 <Text style={{ fontSize: 12, fontWeight: 'bold', color: '#475569', marginBottom: 6, textTransform: 'uppercase' }}>Your Physical Count (₱)</Text>
-                <TextInput
-                  style={{ borderWidth: 1, borderColor: '#cbd5e1', backgroundColor: '#fff', borderRadius: 8, padding: 12, fontSize: 18, textAlign: 'center' }}
-                  keyboardType="numeric"
-                  placeholder="Count and enter cash in drawer"
-                  value={endingCash}
-                  onChangeText={(val) => {
-                    setEndingCash(val);
-                    setShowVarianceInput(false);
-                  }}
-                />
+                <View style={{ flexDirection: 'row', alignItems: 'center', borderWidth: 1.5, borderColor: '#cbd5e1', backgroundColor: '#fff', borderRadius: 8, paddingHorizontal: 12 }}>
+                  <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#64748b', marginRight: 6 }}>₱</Text>
+                  <TextInput
+                    style={{ flex: 1, paddingVertical: 12, fontSize: 18, fontWeight: '700', color: '#0f172a' }}
+                    keyboardType="decimal-pad"
+                    placeholder="0.00"
+                    placeholderTextColor="#94a3b8"
+                    value={endingCash}
+                    onChangeText={(val) => {
+                      let filtered = val.replace(/[^0-9.]/g, '');
+                      const parts = filtered.split('.');
+                      if (parts.length > 2) filtered = parts[0] + '.' + parts.slice(1).join('');
+                      setEndingCash(filtered);
+                      setShowVarianceInput(false);
+                    }}
+                  />
+                </View>
                 {showVarianceInput && (
                   <View style={{ marginTop: 12, backgroundColor: '#fef9c3', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#fde68a' }}>
                     <Text style={{ fontSize: 12, fontWeight: 'bold', color: '#92400e', marginBottom: 4 }}>⚠️ MANDATORY: Explain the Cash Variance</Text>

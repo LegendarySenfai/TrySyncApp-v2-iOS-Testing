@@ -127,11 +127,13 @@ export default function UniversalInventory({ category }) {
   return (
     <View style={styles.container}>
       <View style={styles.headerRow}>
-        <Text style={styles.headerTitle}>{category.toUpperCase()} INGREDIENTS</Text>
-        <TouchableOpacity style={styles.mainBatchBtn} onPress={openBatchModal}>
-            <Text style={styles.mainBatchBtnText}>🧾 Log Grocery Receipt</Text>
-        </TouchableOpacity>
-      </View>
+              <Text style={styles.headerTitle} numberOfLines={1} ellipsizeMode="tail">
+                {category.toUpperCase()} INGREDIENTS
+              </Text>
+              <TouchableOpacity style={styles.mainBatchBtn} onPress={openBatchModal}>
+                <Text style={styles.mainBatchBtnText}>🧾 Log Grocery Receipt</Text>
+              </TouchableOpacity>
+        </View>
 
       {loading ? <ActivityIndicator size="large" color="#3498db" /> : (
         <FlatList 
@@ -231,10 +233,32 @@ export default function UniversalInventory({ category }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 20, backgroundColor: '#fff' },
-  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-  headerTitle: { fontSize: 20, fontWeight: 'bold', color: '#2c3e50' },
-  mainBatchBtn: { backgroundColor: '#27ae60', paddingVertical: 10, paddingHorizontal: 15, borderRadius: 8 },
-  mainBatchBtnText: { color: 'white', fontWeight: 'bold', fontSize: 14 },
+headerRow: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    marginBottom: 16,
+    gap: 8
+  },
+  headerTitle: { 
+    fontSize: 16, 
+    fontWeight: '800', 
+    color: '#0f172a',
+    flex: 1,
+    flexShrink: 1
+  },
+  mainBatchBtn: { 
+    backgroundColor: '#16a34a', 
+    paddingVertical: 8, 
+    paddingHorizontal: 10, 
+    borderRadius: 8,
+    flexShrink: 0
+  },
+  mainBatchBtnText: { 
+    color: 'white', 
+    fontWeight: '700', 
+    fontSize: 12 
+  },
   
   row: { flexDirection: 'row', padding: 15, borderBottomWidth: 1, borderColor: '#eee', alignItems: 'center' },
   itemName: { fontSize: 16, fontWeight: 'bold', color: '#2c3e50' },
