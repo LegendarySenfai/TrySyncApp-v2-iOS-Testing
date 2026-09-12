@@ -590,9 +590,15 @@ React.useEffect(() => {
   const handleInitiateEndShift = async () => {
     setIsSubmittingAudit(false);
     try {
+      // 1. Read directly from storage to eliminate stale closures from navigation
+      const savedCash = await AsyncStorage.getItem(`startingCash_${category}`);
+      const activeStartingCash = parseFloat(savedCash !== null ? savedCash : startingCash) || 0;
+      setStartingCash(String(activeStartingCash));
+
+      // 2. Pass the retrieved starting cash to the summary endpoint
       const [invRes, summaryRes] = await Promise.all([
         api.get(`/inventory/raw?category=${category}`),
-        api.get(`/audit/shift-summary?category=${category}&starting_cash=${parseFloat(startingCash) || 0}`)
+        api.get(`/audit/shift-summary?category=${category}&starting_cash=${activeStartingCash}`)
       ]);
       setRawInventory(invRes.data);
       setShiftSummary(summaryRes.data);
@@ -647,38 +653,44 @@ React.useEffect(() => {
       numericCounts[id] = parseFloat(auditCounts[id]) || 0;
     });
     try {
-          await api.post('/audit/submit', {
-            staff_name:      user?.username || "Unknown Staff",
-            shop_category:   category,
-            physical_counts: numericCounts,
-            starting_cash:   parseFloat(startingCash) || 0,
-            actual_cash:     parseFloat(endingCash)   || 0,
-            variance_reason: varianceReason.trim() || null,
-          });
-          
-          setIsSubmittingAudit(false);
-          setShowAuditModal(false);
-          await AsyncStorage.removeItem(`shiftActive_${category}`);
-          await AsyncStorage.removeItem(`startingCash_${category}`);
-          setShiftStarted(false);
-          setEndingCash('');
-          setAuditCounts({});
+      await api.post('/audit/submit', {
+        staff_name:      user?.username || "Unknown Staff",
+        shop_category:   category,
+        physical_counts: numericCounts,
+        starting_cash:   parseFloat(startingCash) || 0,
+        actual_cash:     parseFloat(endingCash)   || 0,
+        variance_reason: varianceReason.trim() || null,
+      });
+      
+      // 1. Clear shift state from storage so the NEXT login starts fresh
+      await AsyncStorage.removeItem(`shiftActive_${category}`);
+      await AsyncStorage.removeItem(`startingCash_${category}`);
+      
+      // 2. Close the modal & reset loading lock
+      setIsSubmittingAudit(false);
+      setShowAuditModal(false);
 
-          Alert.alert(
-            "Remittance Submitted",
-            "Shift closed and remittance submitted successfully.",
-            [
-              {
-                text: "Log Out",
-                onPress: () => logout()
-              }
-            ],
-            { cancelable: false }
-          );
-        } catch (err) {
-          setIsSubmittingAudit(false);
-          showResponsiveAlert("Server Error", err.response?.data?.message || "Failed to submit audit.");
-        }
+      // 3. Prompt user and log out cleanly
+      if (Platform.OS === 'web') {
+        window.alert("Shift closed and remittance submitted successfully.");
+        logout();
+      } else {
+        Alert.alert(
+          "Remittance Submitted",
+          "Shift closed and remittance submitted successfully.",
+          [
+            {
+              text: "Log Out",
+              onPress: () => logout()
+            }
+          ],
+          { cancelable: false }
+        );
+      }
+    } catch (err) {
+      setIsSubmittingAudit(false);
+      showResponsiveAlert("Server Error", err.response?.data?.message || "Failed to submit audit.");
+    }
       };
 
   // ─── EXISTING UI GROUPING LOGIC (untouched) ──────────────────
@@ -1246,7 +1258,7 @@ React.useEffect(() => {
               <TouchableOpacity
                 onPress={submitEndShiftAudit}
                 disabled={isSubmittingAudit}
-                style={[{ flex: 1, backgroundColor: '#e74c3c', padding: 15, borderRadius: 8, alignItems: 'center', justifyContent: 'center' }, isSubmittingAudit && { opacity: 0.5 }]}
+                style={[{ flex: 1, backgroundColor: '#16a34a', padding: 15, borderRadius: 8, alignItems: 'center', justifyContent: 'center' }, isSubmittingAudit && { opacity: 0.5 }]}
               >
                 <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 15, textAlign: 'center' }}>
                   {isSubmittingAudit ? "SUBMITTING..." : "SUBMIT REMITTANCE"}
