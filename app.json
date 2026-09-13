@@ -10,6 +10,12 @@
     "scheme": "trisyncapp",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "updates": {
+      "url": "https://u.expo.dev/98144954-8f6d-48f1-a725-336cc0175cef"
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.duosync.mobile"
