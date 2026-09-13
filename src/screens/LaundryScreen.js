@@ -3,8 +3,12 @@ import {
   View, Text, Modal, TextInput, TouchableOpacity,
   StyleSheet, ActivityIndicator, Alert, ScrollView, Platform, KeyboardAvoidingView
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import NetInfo from '@react-native-community/netinfo';
 import api from '../config/api';
 import UniversalPOS from '../components/UniversalPOS';
+
+const QUEUE_KEY = 'offline_transaction_queue';
 
 // ─────────────────────────────────────────────
 //  Helper: generate a readable claim ticket ID
@@ -71,7 +75,7 @@ export default function LaundryScreen() {
   const [lastWeight, setLastWeight]     = useState('');
   const [lastTotal, setLastTotal]       = useState(0);
   const [checkoutResolver, setCheckoutResolver] = useState(null);
-  const [isSubmitting, setIsSubmitting] = useState(false); // 🛠️ NEW: Anti-spam lock
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => { fetchData(); }, []);
 
@@ -87,66 +91,71 @@ export default function LaundryScreen() {
     }
   };
 
-  // ─────────────────────────────────────────────────────────────────────────
-  //  This function is passed to UniversalPOS as `onBeforeCheckout`.
-  //  UniversalPOS will call it INSTEAD of its own api.post('/transaction/checkout')
-  //  when the category is "laundry".
-  //  It receives the fully-built payload that UniversalPOS already prepared,
-  //  so we do NOT touch any cart/math/discount logic — we just intercept it,
-  //  show the customer info modal, then forward it to the backend ourselves.
-  // ─────────────────────────────────────────────────────────────────────────
   const handleBeforeCheckout = (payload) => {
-  return new Promise((resolve) => {
-    setPendingCheckoutPayload(payload);
-    setPendingTotal(payload.total_revenue ?? 0);
-    setPaymentMethod('cash');
-    setAmountReceived('');
+    return new Promise((resolve) => {
+      setPendingCheckoutPayload(payload);
+      setPendingTotal(payload.total_revenue ?? 0);
+      setPaymentMethod('cash');
+      setAmountReceived('');
+      setAmountError('');
+      setGcashReference('');
+      setGcashError('');
+      setPaymentModalVisible(true);
+      setCheckoutResolver(() => resolve);
+    });
+  };
+
+  const handleConfirmPayment = () => {
+    if (paymentMethod === 'cash') {
+      const received = parseFloat(amountReceived);
+      if (isNaN(received) || received < pendingTotal) {
+        setAmountError(`Amount received cannot be less than ₱${pendingTotal.toFixed(2)}.`);
+        return;
+      }
+    } else {
+      if (!gcashReference.trim()) {
+        setGcashError('Please enter the GCash Reference / Transaction ID.');
+        return;
+      }
+    }
+
     setAmountError('');
-    setGcashReference('');
-    setGcashError('');
-    setPaymentModalVisible(true);   // ← show payment modal first
-    setCheckoutResolver(() => resolve);
-  });
-};
+    setPaymentModalVisible(false);
+    setCustomerName('');
+    setCustomerPhone('');
+    setWeightKg('');
+    setCustomerNameError('');
+    setCustomerPhoneError('');
+    setWeightError('');
+    setFormError('');
+    setPickupDate(getDefaultPickupDate());
+    setClaimTicket(generateClaimTicket());
+    setCustomerModalVisible(true);
+  };
 
-const handleConfirmPayment = () => {
-  // Validate
-  if (paymentMethod === 'cash') {
-    const received = parseFloat(amountReceived);
-    if (isNaN(received) || received < pendingTotal) {
-      setAmountError(`Amount received cannot be less than ₱${pendingTotal.toFixed(2)}.`);
-      return;
+  const enqueueLaundryTransaction = async (finalPayload) => {
+    try {
+      const raw = await AsyncStorage.getItem(QUEUE_KEY);
+      const queue = raw ? JSON.parse(raw) : [];
+      queue.push({
+        ...finalPayload,
+        _queuedAt: new Date().toISOString(),
+        _category: 'laundry'
+      });
+      await AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
+    } catch (err) {
+      console.error('[LaundryOffline] Failed to queue transaction:', err);
     }
-  } else {
-    if (!gcashReference.trim()) {
-      setGcashError('Please enter the GCash Reference / Transaction ID.');
-      return;
-    }
-  }
-
-  // Payment is valid — close payment modal and open customer info modal
-  setAmountError('');
-  setPaymentModalVisible(false);
-  setCustomerName('');
-  setCustomerPhone('');
-  setWeightKg('');
-  setCustomerNameError('');
-  setCustomerPhoneError('');
-  setWeightError('');
-  setFormError('');
-  setPickupDate(getDefaultPickupDate());
-  setClaimTicket(generateClaimTicket());
-  setCustomerModalVisible(true);
-};
+  };
 
   const handleConfirmCustomerInfo = async () => {
-    if (isSubmitting) return; // 🛠️ NEW: Anti-spam lock prevents double execution
+    if (isSubmitting) return;
 
     if (!customerName.trim() && !customerPhone.trim() && !weightKg.trim()) {
-    setFormError('Please fill in all required fields before confirming.');
-    return;
-  }
-+ setFormError('');
+      setFormError('Please fill in all required fields before confirming.');
+      return;
+    }
+    setFormError('');
 
     if (!customerName.trim()) {
       setCustomerNameError('Please enter the customer name.');
@@ -172,39 +181,64 @@ const handleConfirmPayment = () => {
     setCustomerNameError('');
     setCustomerPhoneError('');
     setWeightError('');
-    setIsSubmitting(true); // 🔒 Lock the button!
+    setIsSubmitting(true);
 
-    try {
-      // Forward the payload UniversalPOS built + laundry-specific fields
-      await api.post('/transaction/checkout', {
-        ...pendingCheckoutPayload,            // cart_items, total_revenue, discount_* (untouched)
-        customer_name:  customerName.trim(),  // override/add customer_name
-        customer_phone: customerPhone.trim(),
-        weight_kg:      parseFloat(weightKg),
-        pickup_date:    pickupDate,
-        claim_ticket:   claimTicket,
-        order_type:     'laundry',
-        payment_method:  paymentMethod,                                          // ADD
-        amount_received: paymentMethod === 'cash' ? parseFloat(amountReceived) : null,  // ADD
-        gcash_reference: paymentMethod === 'gcash' ? gcashReference.trim() : null,
-      });
+    const finalPayload = {
+      ...pendingCheckoutPayload,
+      customer_name:   customerName.trim(),
+      customer_phone:  customerPhone.trim(),
+      weight_kg:       parseFloat(weightKg),
+      pickup_date:     pickupDate,
+      claim_ticket:    claimTicket,
+      order_type:      'laundry',
+      payment_method:  paymentMethod,
+      amount_received: paymentMethod === 'cash' ? parseFloat(amountReceived) : null,
+      gcash_reference: paymentMethod === 'gcash' ? gcashReference.trim() : null,
+    };
 
-      // Save all details for the ticket modal
+    const markSuccessAndShowTicket = () => {
       setLastTicket(claimTicket);
       setLastCustomer(customerName.trim());
       setLastPickup(pickupDate);
       setLastPhone(customerPhone.trim());
       setLastWeight(parseFloat(weightKg).toFixed(1));
       setLastTotal(pendingCheckoutPayload?.total_revenue ?? 0);
-
       setCustomerModalVisible(false);
       setTicketModalVisible(true);
+    };
 
+    try {
+      const netState = await NetInfo.fetch();
+      const isOnline = netState.isConnected && netState.isInternetReachable !== false;
+
+      if (!isOnline) {
+        await enqueueLaundryTransaction(finalPayload);
+        Alert.alert(
+          '✅ Transaction Saved Offline',
+          'This laundry order has been saved locally and will sync automatically when WiFi returns.',
+          [{ text: 'OK' }]
+        );
+        markSuccessAndShowTicket();
+        return;
+      }
+
+      await api.post('/transaction/checkout', finalPayload);
+      markSuccessAndShowTicket();
     } catch (err) {
-      showResponsiveAlert('Checkout Failed', err.response?.data?.message || 'Server Error');
-      if (checkoutResolver) checkoutResolver({ success: false });
+      if (!err.response) {
+        await enqueueLaundryTransaction(finalPayload);
+        Alert.alert(
+          '✅ Transaction Saved Offline',
+          'Server unreachable. Saved locally and will sync once connected.',
+          [{ text: 'OK' }]
+        );
+        markSuccessAndShowTicket();
+      } else {
+        showResponsiveAlert('Checkout Failed', err.response?.data?.message || 'Server Error');
+        if (checkoutResolver) checkoutResolver({ success: false });
+      }
     } finally {
-      setIsSubmitting(false); // 🔓 Unlock the button safely
+      setIsSubmitting(false);
     }
   };
 
@@ -218,151 +252,140 @@ const handleConfirmPayment = () => {
 
   return (
     <View style={styles.container}>
-      {/* ── UniversalPOS (unchanged internals) ─────────────────────────── */}
       <UniversalPOS
         category="laundry"
         title="LAUNDRY SERVICES"
         onBeforeCheckout={handleBeforeCheckout}
       />
 
-      {/* ── Payment Method Modal ───────────────────────────────────────── */}
-<Modal
-  visible={paymentModalVisible}
-  animationType="slide"
-  transparent
-  onRequestClose={() => {
-    setPaymentModalVisible(false);
-    if (checkoutResolver) checkoutResolver({ success: false });
-  }}
->
-  <View style={styles.modalBackdrop}>
-    <View style={styles.modalCard}>
+      {/* Payment Method Modal */}
+      <Modal
+        visible={paymentModalVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => {
+          setPaymentModalVisible(false);
+          if (checkoutResolver) checkoutResolver({ success: false });
+        }}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Select Payment Method</Text>
+            <Text style={[styles.modalSubtitle, { marginBottom: 20 }]}>Amount due for this order</Text>
 
-      {/* Header */}
-      <Text style={styles.modalTitle}>Select Payment Method</Text>
-      <Text style={[styles.modalSubtitle, { marginBottom: 20 }]}>Amount due for this order</Text>
-
-      {/* Total Amount Display */}
-      <View style={{ backgroundColor: '#F0FDF4', borderRadius: 12, padding: 20, alignItems: 'center', marginBottom: 20 }}>
-        <Text style={{ fontSize: 36, fontWeight: '900', color: '#16A34A' }}>
-          ₱{Number(pendingTotal).toFixed(2)}
-        </Text>
-      </View>
-
-      {/* Cash / GCash Toggle */}
-      <View style={{ flexDirection: 'row', gap: 10, marginBottom: 20 }}>
-        <TouchableOpacity
-          onPress={() => {
-            setPaymentMethod('cash');
-            setGcashError('');
-          }}
-          style={{
-            flex: 1, padding: 14, borderRadius: 10, alignItems: 'center',
-            borderWidth: 2,
-            borderColor: paymentMethod === 'cash' ? '#16A34A' : '#E2E8F0',
-            backgroundColor: paymentMethod === 'cash' ? '#F0FDF4' : '#fff',
-          }}
-        >
-          
-          <Text style={{ fontWeight: '700', color: paymentMethod === 'cash' ? '#16A34A' : '#64748B', marginTop: 2, textAlign: 'center' }}>Cash</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          onPress={() => {
-            setPaymentMethod('gcash');
-            setAmountError('');
-          }}
-          style={{
-            flex: 1, padding: 14, borderRadius: 10, alignItems: 'center',
-            borderWidth: 2,
-            borderColor: paymentMethod === 'gcash' ? '#3B82F6' : '#E2E8F0',
-            backgroundColor: paymentMethod === 'gcash' ? '#EFF6FF' : '#fff',
-          }}
-        >
-          
-          <Text style={{ fontWeight: '700', color: paymentMethod === 'gcash' ? '#3B82F6' : '#64748B', marginTop: 2, textAlign: 'center' }}>GCash</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Cash: Amount Received Input */}
-      {paymentMethod === 'cash' && (
-        <View style={{ marginBottom: 20 }}>
-          <Text style={styles.fieldLabel}>AMOUNT RECEIVED</Text>
-          <TextInput
-            style={[styles.input, amountError ? { borderColor: '#EF4444' } : null]}
-            placeholder="e.g. 100"
-            placeholderTextColor="#adb5bd"
-            keyboardType="decimal-pad"
-            value={amountReceived}
-            onChangeText={(text) => {
-              setAmountReceived(text);
-              if (amountError) setAmountError('');
-            }}
-          />
-          {amountError ? (
-            <Text style={{ color: '#EF4444', fontSize: 12, marginTop: 4 }}>
-              {amountError}
-            </Text>
-          ) : ( 
-            parseFloat(amountReceived) >= pendingTotal && (
-              <Text style={{ color: '#16A34A', fontSize: 12, marginTop: 4 }}>
-                Change: ₱{(parseFloat(amountReceived) - pendingTotal).toFixed(2)}
+            <View style={{ backgroundColor: '#F0FDF4', borderRadius: 12, padding: 20, alignItems: 'center', marginBottom: 20 }}>
+              <Text style={{ fontSize: 36, fontWeight: '900', color: '#16A34A' }}>
+                ₱{Number(pendingTotal).toFixed(2)}
               </Text>
-            )
-          )}
+            </View>
+
+            <View style={{ flexDirection: 'row', gap: 10, marginBottom: 20 }}>
+              <TouchableOpacity
+                onPress={() => {
+                  setPaymentMethod('cash');
+                  setGcashError('');
+                }}
+                style={{
+                  flex: 1, padding: 14, borderRadius: 10, alignItems: 'center',
+                  borderWidth: 2,
+                  borderColor: paymentMethod === 'cash' ? '#16A34A' : '#E2E8F0',
+                  backgroundColor: paymentMethod === 'cash' ? '#F0FDF4' : '#fff',
+                }}
+              >
+                <Text style={{ fontWeight: '700', color: paymentMethod === 'cash' ? '#16A34A' : '#64748B', marginTop: 2, textAlign: 'center' }}>Cash</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => {
+                  setPaymentMethod('gcash');
+                  setAmountError('');
+                }}
+                style={{
+                  flex: 1, padding: 14, borderRadius: 10, alignItems: 'center',
+                  borderWidth: 2,
+                  borderColor: paymentMethod === 'gcash' ? '#3B82F6' : '#E2E8F0',
+                  backgroundColor: paymentMethod === 'gcash' ? '#EFF6FF' : '#fff',
+                }}
+              >
+                <Text style={{ fontWeight: '700', color: paymentMethod === 'gcash' ? '#3B82F6' : '#64748B', marginTop: 2, textAlign: 'center' }}>GCash</Text>
+              </TouchableOpacity>
+            </View>
+
+            {paymentMethod === 'cash' && (
+              <View style={{ marginBottom: 20 }}>
+                <Text style={styles.fieldLabel}>AMOUNT RECEIVED</Text>
+                <TextInput
+                  style={[styles.input, amountError ? { borderColor: '#EF4444' } : null]}
+                  placeholder="e.g. 100"
+                  placeholderTextColor="#adb5bd"
+                  keyboardType="decimal-pad"
+                  value={amountReceived}
+                  onChangeText={(text) => {
+                    setAmountReceived(text);
+                    if (amountError) setAmountError('');
+                  }}
+                />
+                {amountError ? (
+                  <Text style={{ color: '#EF4444', fontSize: 12, marginTop: 4 }}>
+                    {amountError}
+                  </Text>
+                ) : ( 
+                  parseFloat(amountReceived) >= pendingTotal && (
+                    <Text style={{ color: '#16A34A', fontSize: 12, marginTop: 4 }}>
+                      Change: ₱{(parseFloat(amountReceived) - pendingTotal).toFixed(2)}
+                    </Text>
+                  )
+                )}
+              </View>
+            )}
+
+            {paymentMethod === 'gcash' && (
+              <View style={{ marginBottom: 20 }}>
+                <Text style={styles.fieldLabel}>GCASH REFERENCE / TRANSACTION ID</Text>
+                <TextInput
+                  style={[styles.input, gcashError ? { borderColor: '#EF4444' } : null]}
+                  placeholder="e.g. 1234567890"
+                  placeholderTextColor="#adb5bd"
+                  value={gcashReference}
+                  onChangeText={(text) => {
+                    setGcashReference(text);
+                    if (gcashError) setGcashError('');
+                  }}
+                />
+                {gcashError ? (
+                  <Text style={{ color: '#EF4444', fontSize: 12, marginTop: 4 }}>{gcashError}</Text>
+                ) : (
+                  <Text style={{ color: '#3B82F6', fontSize: 12, marginTop: 4 }}>
+                    Double check if ₱{Number(pendingTotal).toFixed(2)} is successfully sent to GCash.
+                  </Text>
+                )}
+              </View>
+            )}
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.cancelBtn}
+                onPress={() => {
+                  setPaymentModalVisible(false);
+                  if (checkoutResolver) checkoutResolver({ success: false });
+                }}
+              >
+                <Text style={styles.cancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.confirmBtn, { backgroundColor: paymentMethod === 'gcash' ? '#3B82F6' : '#16A34A' }]}
+                onPress={handleConfirmPayment}
+              >
+                <Text style={styles.confirmBtnText}>
+                  {paymentMethod === 'gcash' ? 'Confirm GCash' : 'Confirm Cash'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         </View>
-      )}
+      </Modal>
 
-      {/* GCash: Reference Input */}
-      {paymentMethod === 'gcash' && (
-        <View style={{ marginBottom: 20 }}>
-          <Text style={styles.fieldLabel}>GCASH REFERENCE / TRANSACTION ID</Text>
-          <TextInput
-            style={[styles.input, gcashError ? { borderColor: '#EF4444' } : null]}
-            placeholder="e.g. 1234567890"
-            placeholderTextColor="#adb5bd"
-            value={gcashReference}
-            onChangeText={(text) => {
-              setGcashReference(text);
-              if (gcashError) setGcashError('');
-            }}
-          />
-          {gcashError ? (
-            <Text style={{ color: '#EF4444', fontSize: 12, marginTop: 4 }}>{gcashError}</Text>
-          ) : (
-            <Text style={{ color: '#3B82F6', fontSize: 12, marginTop: 4 }}>
-              Double check if ₱{Number(pendingTotal).toFixed(2)} is successfully sent to GCash.
-            </Text>
-          )}
-        </View>
-      )}
-
-      {/* Action Buttons */}
-      <View style={styles.modalActions}>
-        <TouchableOpacity
-          style={styles.cancelBtn}
-          onPress={() => {
-            setPaymentModalVisible(false);
-            if (checkoutResolver) checkoutResolver({ success: false });
-          }}
-        >
-          <Text style={styles.cancelBtnText}>Cancel</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.confirmBtn, { backgroundColor: paymentMethod === 'gcash' ? '#3B82F6' : '#16A34A' }]}
-          onPress={handleConfirmPayment}
-        >
-          <Text style={styles.confirmBtnText}>
-            {paymentMethod === 'gcash' ? 'Confirm GCash' : 'Confirm Cash'}
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-    </View>
-  </View>
-</Modal>
-
-      {/* ── Customer Info Modal ─────────────────────────────────────────── */}
+      {/* Customer Info Modal */}
       <Modal
         visible={customerModalVisible}
         animationType="slide"
@@ -374,8 +397,6 @@ const handleConfirmPayment = () => {
           style={styles.modalBackdrop}
         >
           <View style={styles.modalCard}>
-
-            {/* Header */}
             <View style={styles.modalHeader}>
               <View style={styles.modalIconBadge}>
                 <Text style={styles.modalIcon}>🧺</Text>
@@ -391,19 +412,17 @@ const handleConfirmPayment = () => {
               showsVerticalScrollIndicator={false}
               style={{ marginBottom: 10 }}
             >
-              {/* Claim Ticket Preview */}
               <View style={styles.ticketPreview}>
                 <Text style={styles.ticketPreviewLabel}>CLAIM TICKET</Text>
                 <Text style={styles.ticketPreviewNumber}>{claimTicket}</Text>
               </View>
 
               {formError ? (
-              <View style={styles.formErrorBanner}>
-              <Text style={styles.formErrorText}>{formError}</Text>
-              </View>
+                <View style={styles.formErrorBanner}>
+                  <Text style={styles.formErrorText}>{formError}</Text>
+                </View>
               ) : null}
 
-              {/* Customer Name */}
               <Text style={styles.fieldLabel}>Customer Name <Text style={styles.required}>*</Text></Text>
               <TextInput
                 style={[styles.input, customerNameError ? { borderColor: '#EF4444' } : null]}
@@ -420,7 +439,6 @@ const handleConfirmPayment = () => {
               />
               {customerNameError ? <Text style={{ color: '#EF4444', fontSize: 12, marginTop: 4 }}>{customerNameError}</Text> : null}
 
-              {/* Contact Number */}
               <Text style={styles.fieldLabel}>Contact Number <Text style={styles.required}>*</Text></Text>
               <TextInput
                 style={[styles.input, customerPhoneError ? { borderColor: '#EF4444' } : null]}
@@ -437,7 +455,6 @@ const handleConfirmPayment = () => {
               />
               {customerPhoneError ? <Text style={{ color: '#EF4444', fontSize: 12, marginTop: 4 }}>{customerPhoneError}</Text> : null}
 
-              {/* Weight */}
               <Text style={styles.fieldLabel}>
                 Load Weight <Text style={styles.required}>*</Text>
               </Text>
@@ -469,7 +486,6 @@ const handleConfirmPayment = () => {
                 <Text style={styles.fieldHint}>Weigh the load before entering</Text>
               )}
 
-              {/* Pickup Date */}
               <Text style={[styles.fieldLabel, { marginTop: 15 }]}>Pickup Date</Text>
               <TextInput
                 style={styles.input}
@@ -478,10 +494,8 @@ const handleConfirmPayment = () => {
                 value={pickupDate}
                 onChangeText={setPickupDate}
               />
-
             </ScrollView>
 
-            {/* Action Buttons */}
             <View style={styles.modalActions}>
               <TouchableOpacity
                 style={styles.cancelBtn}
@@ -495,7 +509,7 @@ const handleConfirmPayment = () => {
               <TouchableOpacity
                 style={[styles.confirmBtn, isSubmitting && { opacity: 0.5 }]}
                 onPress={handleConfirmCustomerInfo}
-                disabled={isSubmitting} // 🔒 Native disable
+                disabled={isSubmitting}
               >
                 <Text style={styles.confirmBtnText}>
                   {isSubmitting ? "Confirming..." : "Confirm Order"}
@@ -506,7 +520,7 @@ const handleConfirmPayment = () => {
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* ── Claim Ticket Success Modal ──────────────────────────────────── */}
+      {/* Claim Ticket Success Modal */}
       <Modal
         visible={ticketModalVisible}
         animationType="fade"
@@ -515,7 +529,6 @@ const handleConfirmPayment = () => {
       >
         <View style={styles.modalBackdrop}>
           <View style={[styles.modalCard, { alignItems: 'center', paddingVertical: 35 }]}>
-
             <Text style={{ fontSize: 48, marginBottom: 10 }}>🎟️</Text>
             <Text style={styles.successTitle}>Order Confirmed!</Text>
             <Text style={styles.successSub}>Attach this ticket to the laundry bag</Text>
@@ -560,20 +573,18 @@ const handleConfirmPayment = () => {
               style={[styles.confirmBtn, { flex: 0, marginTop: 25, width: '100%', justifyContent: 'center' }]}
               onPress={() => {
                 setTicketModalVisible(false);
-                
                 if (checkoutResolver) checkoutResolver({ 
-                    success: true, 
-                    ticket: lastTicket, 
-                    customer: lastCustomer, 
-                    pickupDate: lastPickup,
-                    phone: lastPhone,      
-                    weight: lastWeight,
-                    paymentMethod: paymentMethod,
-                    amountReceived: paymentMethod === 'cash' ? parseFloat(amountReceived) : null,
-                    change: paymentMethod === 'cash' ? (parseFloat(amountReceived) - (pendingCheckoutPayload?.total_revenue ?? 0)) : null,
-                    gcashReference: paymentMethod === 'gcash' ? gcashReference : null
+                  success: true, 
+                  ticket: lastTicket, 
+                  customer: lastCustomer, 
+                  pickupDate: lastPickup,
+                  phone: lastPhone,      
+                  weight: lastWeight,
+                  paymentMethod: paymentMethod,
+                  amountReceived: paymentMethod === 'cash' ? parseFloat(amountReceived) : null,
+                  change: paymentMethod === 'cash' ? (parseFloat(amountReceived) - (pendingCheckoutPayload?.total_revenue ?? 0)) : null,
+                  gcashReference: paymentMethod === 'gcash' ? gcashReference : null
                 });
-                
                 fetchData();
               }}
             >
@@ -586,14 +597,10 @@ const handleConfirmPayment = () => {
   );
 }
 
-// ─────────────────────────────────────────────
-//  Styles
-// ─────────────────────────────────────────────
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8FAFC' },
   center:    { flex: 1, justifyContent: 'center', alignItems: 'center' },
 
-  // Modal shell
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(15,23,42,0.75)',
@@ -615,7 +622,6 @@ const styles = StyleSheet.create({
     elevation: 12,
   },
 
-  // Modal header
   modalHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -635,7 +641,6 @@ const styles = StyleSheet.create({
   modalTitle:    { fontSize: 20, fontWeight: '800', color: '#0F172A' },
   modalSubtitle: { fontSize: 12, color: '#64748B', marginTop: 2 },
 
-  // Ticket preview inside form
   ticketPreview: {
     backgroundColor: '#F0FDF4',
     borderWidth: 1.5,
@@ -647,9 +652,7 @@ const styles = StyleSheet.create({
   },
   ticketPreviewLabel:  { fontSize: 10, fontWeight: '700', color: '#16A34A', letterSpacing: 2 },
   ticketPreviewNumber: { fontSize: 22, fontWeight: '900', color: '#15803D', marginVertical: 4, letterSpacing: 1 },
-  ticketPreviewHint:   { fontSize: 11, color: '#4ADE80' },
 
-  // Form fields
   fieldLabel:  { fontSize: 12, fontWeight: '700', color: '#475569', marginBottom: 6, marginTop: 14 },
   required:    { color: '#EF4444' },
   fieldHint:   { fontSize: 11, color: '#94A3B8', marginTop: 4 },
@@ -673,7 +676,6 @@ const styles = StyleSheet.create({
   },
   unitBadgeText: { fontWeight: '700', color: '#475569', fontSize: 14 },
 
-  // Buttons
   modalActions: { flexDirection: 'row', gap: 10, marginTop: 6 },
   cancelBtn: {
     flex: 1,
@@ -692,7 +694,6 @@ const styles = StyleSheet.create({
   },
   confirmBtnText: { color: '#fff', fontWeight: '800', fontSize: 14 },
 
-  // Success / ticket modal
   successTitle: { fontSize: 22, fontWeight: '800', color: '#0F172A', marginBottom: 4 },
   successSub:   { fontSize: 13, color: '#64748B', marginBottom: 20 },
   bigTicket: {
@@ -724,18 +725,18 @@ const styles = StyleSheet.create({
   successKey: { fontSize: 13, color: '#64748B' },
   successVal: { fontSize: 13, fontWeight: '700', color: '#0F172A' },
   formErrorBanner: {
-   backgroundColor: '#FEF2F2',
-   borderWidth: 1.5,
-   borderColor: '#FCA5A5',
-   borderRadius: 8,
-   paddingVertical: 10,
-   paddingHorizontal: 14,
-   marginBottom: 16,
- },
- formErrorText: {
-   color: '#DC2626',
-   fontSize: 13,
-   fontWeight: '700',
-   textAlign: 'center',
- },
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1.5,
+    borderColor: '#FCA5A5',
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    marginBottom: 16,
+  },
+  formErrorText: {
+    color: '#DC2626',
+    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
 });
