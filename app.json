@@ -1,8 +1,8 @@
 {
-"expo": {
+  "expo": {
     "name": "DuoSync",
     "slug": "DuoSync",
-    "owner": "KantoCoders",
+    "owner": "kantocoders",
     "version": "1.0.0",
     "platforms": ["ios", "android"],
     "orientation": "portrait",
@@ -48,7 +48,10 @@
       "reactCompiler": true
     },
     "extra": {
-      "router": {}
+      "router": {},
+      "eas": {
+        "projectId": "98144954-8f6d-48f1-a725-336cc0175cef"
+      }
     }
   }
 }
