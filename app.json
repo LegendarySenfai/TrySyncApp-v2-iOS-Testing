@@ -2,7 +2,6 @@
 "expo": {
     "name": "DuoSync",
     "slug": "DuoSync",
-    "owner": "KantoCoders",
     "version": "1.0.0",
     "platforms": ["ios", "android"],
     "orientation": "portrait",
