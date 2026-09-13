@@ -1,8 +1,8 @@
 {
-  "expo": {
+"expo": {
     "name": "DuoSync",
     "slug": "DuoSync",
-    "owner": "kantocoders",
+    "owner": "KantoCoders",
     "version": "1.0.0",
     "platforms": ["ios", "android"],
     "orientation": "portrait",
@@ -10,12 +10,6 @@
     "scheme": "trisyncapp",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
-    "updates": {
-      "url": "https://u.expo.dev/98144954-8f6d-48f1-a725-336cc0175cef"
-    },
-    "runtimeVersion": {
-      "policy": "appVersion"
-    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.duosync.mobile"
@@ -54,10 +48,7 @@
       "reactCompiler": true
     },
     "extra": {
-      "router": {},
-      "eas": {
-        "projectId": "98144954-8f6d-48f1-a725-336cc0175cef"
-      }
+      "router": {}
     }
   }
 }
