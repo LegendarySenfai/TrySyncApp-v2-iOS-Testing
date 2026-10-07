@@ -5,7 +5,7 @@
     "owner": "kantocoders",
     "version": "1.0.0",
     "platforms": ["ios", "android"],
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "trisyncapp",
     "userInterfaceStyle": "automatic",
@@ -18,7 +18,8 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.duosync.mobile"
+      "bundleIdentifier": "com.duosync.mobile",
+      "buildNumber": "2"
     },
     "android": {
       "adaptiveIcon": {
