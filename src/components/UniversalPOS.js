@@ -18,6 +18,7 @@ import {
   ActivityIndicator, Alert, Image, TextInput, useWindowDimensions, Modal, FlatList, Platform, KeyboardAvoidingView
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import api, { BASE_URL } from '../config/api';
 import { useAuth } from '../context/AuthContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -78,7 +79,9 @@ export default function UniversalPOS({ category, title, onBeforeCheckout }) {
   const [shiftSummary, setShiftSummary]               = useState(null);
   const [varianceReason, setVarianceReason]           = useState('');
   const [showVarianceInput, setShowVarianceInput]     = useState(false);
-  const { width } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const { width, height } = useWindowDimensions();
+  const isLandscape = width > height;
   const isTablet = width >= 600;
   const cardFlexBasis = isTablet ? '33.33%' : '100%';
 
@@ -183,7 +186,7 @@ React.useEffect(() => {
     navigation.setOptions({
       headerTitleAlign: 'left',
       headerTitle: () => (
-        <View style={{ maxWidth: 170 }}>
+        <View style={{ maxWidth: Math.max(170, width - 200) }}>
           <Text numberOfLines={1} style={{ fontSize: 15, fontWeight: '800', color: '#0f172a' }}>
             Welcome, {user?.username || 'Staff'}
           </Text>
@@ -208,7 +211,7 @@ React.useEffect(() => {
         </TouchableOpacity>
       )
     });
-  }, [user?.username]);
+  }, [user?.username, width]);
 
   React.useEffect(() => {
     const checkActiveShift = async () => {
@@ -722,8 +725,10 @@ React.useEffect(() => {
   const activeCategories = ['ICE BLENDED', 'ICED DRINKS', 'CHEESE CAKE', 'FRUIT TEA', 'MILK TEA', 'LAUNDRY SERVICES', 'OTHER'].filter(cat => groupedItems[cat]);
 
   // ─── RENDER ──────────────────────────────────────────────────
+  const safeRightInset = isLandscape ? Math.max(insets.right, 44) : insets.right;
+
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingLeft: insets.left, paddingRight: safeRightInset }]}>
 
       {/* ════════════════════════════════════════════════════════
           OFFLINE ENGINE — Objective 1: Offline Status Banner
@@ -831,22 +836,22 @@ React.useEffect(() => {
         />
       </View>
 
-      {/* RIGHT SIDE: CART SIDEBAR (30% Width) — UNTOUCHED */}
-      <View style={{ flex: isTablet ? 4 : 5, backgroundColor: '#e9e9e9' }}>
-        <View style={[styles.cartHeader, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}>
-          <Text style={styles.cartTitle}>Current Order</Text>
+      {/* RIGHT SIDE: CART SIDEBAR (30% Width) — COMPACT IN LANDSCAPE */}
+      <View style={{ flex: isTablet ? 4 : 5, backgroundColor: '#e9e9e9', height: '100%', flexDirection: 'column' }}>
+        <View style={[styles.cartHeader, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }, isLandscape && { paddingVertical: 4, paddingHorizontal: 8 }]}>
+          <Text style={[styles.cartTitle, isLandscape && { fontSize: 13 }]}>Current Order</Text>
         </View>
 
         <ScrollView 
-  style={{ flex: 1 }} 
-  contentContainerStyle={{ padding: 10, flexGrow: 1 }}
-  showsVerticalScrollIndicator={true}
->
+          style={{ flex: 1 }} 
+          contentContainerStyle={{ padding: isLandscape ? 4 : 10, flexGrow: 1, paddingBottom: 20 }}
+          showsVerticalScrollIndicator={true}
+        >
           {cart.map((item) => (
-            <View key={item.cart_id} style={styles.cartItem}>
+            <View key={item.cart_id} style={[styles.cartItem, isLandscape && { padding: 8, marginBottom: 8 }]}>
               <View style={styles.cartItemRow}>
-                <Text style={styles.cartItemName} numberOfLines={2} ellipsizeMode="tail">{item.qty}x {item.item_name}</Text>
-<Text style={styles.cartItemPrice}>₱{item.base_price}</Text>
+                <Text style={[styles.cartItemName, isLandscape && { fontSize: 12 }]} numberOfLines={2} ellipsizeMode="tail">{item.qty}x {item.item_name}</Text>
+                <Text style={[styles.cartItemPrice, isLandscape && { fontSize: 12 }]}>₱{item.base_price}</Text>
               </View>
 
               {item.modifiers.map((mod, index) => (
@@ -854,8 +859,8 @@ React.useEffect(() => {
                   <Text style={styles.modifierText}>+ {(mod.qty || 1) > 1 ? `${mod.qty}x ` : ''}{mod.modifier_name}</Text>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                     <Text style={styles.modifierPrice}>₱{(mod.additional_price * (mod.qty || 1)).toFixed(2)}</Text>
-                    <TouchableOpacity onPress={() => handleRemoveModifier(item.cart_id, mod.id)}>
-                      <Text style={{ color: '#e74c3c', fontSize: 11, fontWeight: 'bold' }}>✕</Text>
+                    <TouchableOpacity onPress={() => handleRemoveModifier(item.cart_id, mod.id)} hitSlop={{ top: 3, bottom: 3, left: 12, right: 8 }}>
+                      <Text style={{ color: '#e74c3c', fontSize: 14, fontWeight: 'bold' }}>✕</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -937,21 +942,21 @@ React.useEffect(() => {
           ))}
         </ScrollView>
 
-        {/* CHECKOUT FOOTER — UNTOUCHED */}
-        <View style={styles.checkoutFooter}>
-          <View style={[styles.totalRow, { marginBottom: 5 }]}>
-            <Text style={{ fontSize: 14, color: '#64748b' }}>Subtotal</Text>
-            <Text style={{ fontSize: 14, color: '#64748b' }}>₱{totals.subtotal.toFixed(2)}</Text>
+        {/* CHECKOUT FOOTER — RESPONSIVE IN LANDSCAPE */}
+        <View style={[styles.checkoutFooter, isLandscape && { paddingVertical: 4, paddingHorizontal: 8, flexShrink: 0 }]}>
+          <View style={[styles.totalRow, { marginBottom: isLandscape ? 2 : 5 }]}>
+            <Text style={{ fontSize: isLandscape ? 11 : 14, color: '#64748b' }}>Subtotal</Text>
+            <Text style={{ fontSize: isLandscape ? 11 : 14, color: '#64748b' }}>₱{totals.subtotal.toFixed(2)}</Text>
           </View>
 
           {category !== 'laundry' && (
             discountApplied ? (
-              <View style={{ marginBottom: 15, padding: 10, backgroundColor: '#fee2e2', borderRadius: 5 }}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 5 }}>
+              <View style={[{ marginBottom: 15, padding: 10, backgroundColor: '#fee2e2', borderRadius: 5 }, isLandscape && { marginBottom: 4, padding: 6 }]}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 2 }}>
                   <Text style={{ color: '#e74c3c', fontSize: 11, fontWeight: 'bold', flex: 1, marginRight: 8 }}>
-                    - {discountDetails.type}{'\n'}(VAT Exc. + 20%)
+                    - {discountDetails.type}
                   </Text>
-                  <Text style={{ color: '#e74c3c', fontSize: 12, fontWeight: 'bold', flexShrink: 0 }}>
+                  <Text style={{ color: '#e74c3c', fontSize: 11, fontWeight: 'bold', flexShrink: 0 }}>
                     -₱{totals.discountAmount.toFixed(2)}
                   </Text>
                 </View>
@@ -968,26 +973,26 @@ React.useEffect(() => {
               <TouchableOpacity
                 onPress={() => setShowDiscountModal(true)}
                 disabled={cart.length === 0}
-                style={[styles.discountTriggerBtn, cart.length === 0 && styles.discountTriggerBtnDisabled]}
+                style={[styles.discountTriggerBtn, cart.length === 0 && styles.discountTriggerBtnDisabled, isLandscape && { paddingVertical: 4, marginBottom: 4 }]}
               >
-                <Text style={[styles.discountTriggerText, cart.length === 0 && styles.discountTriggerTextDisabled]}>
+                <Text style={[styles.discountTriggerText, cart.length === 0 && styles.discountTriggerTextDisabled, isLandscape && { fontSize: 11 }]}>
                   {cart.length === 0 ? 'Add items to apply a discount' : 'Apply Senior / PWD Discount'}
                 </Text>
               </TouchableOpacity>
             )
           )}
 
-          <View style={[styles.totalRow, { borderTopWidth: 1, borderColor: '#eee', paddingTop: 10 }]}>
-            <Text style={styles.totalText}>Total Due</Text>
-            <Text style={styles.totalAmount}>₱{totals.finalTotal.toFixed(2)}</Text>
+          <View style={[styles.totalRow, { borderTopWidth: 1, borderColor: '#eee', paddingTop: isLandscape ? 3 : 10, marginBottom: isLandscape ? 4 : 15 }]}>
+            <Text style={[styles.totalText, isLandscape && { fontSize: 13 }]}>Total Due</Text>
+            <Text style={[styles.totalAmount, isLandscape && { fontSize: 14 }]}>₱{totals.finalTotal.toFixed(2)}</Text>
           </View>
 
           <TouchableOpacity
-            style={[styles.checkoutBtn, cart.length === 0 ? { backgroundColor: '#cbd5e1' } : { backgroundColor: '#27ae60' }]}
+            style={[styles.checkoutBtn, cart.length === 0 ? { backgroundColor: '#cbd5e1' } : { backgroundColor: '#27ae60' }, isLandscape && { paddingVertical: 8, marginTop: 2 }]}
             onPress={handleCheckout}
             disabled={cart.length === 0 || isPrinting}
           >
-            <Text style={styles.checkoutBtnText}>
+            <Text style={[styles.checkoutBtnText, isLandscape && { fontSize: 13 }]}>
               {cart.length === 0 ? "SELECT ITEMS FIRST" : `PAY ₱${totals.finalTotal.toFixed(2)}`}
             </Text>
           </TouchableOpacity>
@@ -1281,199 +1286,192 @@ React.useEffect(() => {
         </View>
       </Modal>
 
-      {/* 🖨️ RECEIPT PRINTING MODAL */}
-      <Modal visible={isPrinting} animationType="fade" transparent>
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center' }}>
-          <View style={{ backgroundColor: 'white', padding: 30, borderRadius: 15, alignItems: 'center', width: 250 }}>
-            <ActivityIndicator size="large" color="#2c3e50" style={{ marginBottom: 15 }} />
-            <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#2c3e50' }}>Printing Receipt...</Text>
-            <Text style={{ color: '#7f8c8d', marginTop: 5, fontSize: 12 }}>Please wait</Text>
-          </View>
-        </View>
-      </Modal>
-
       {/* 🧾 DIGITAL THERMAL RECEIPT MODAL */}
       <Modal visible={showReceiptModal} animationType="slide" transparent>
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
-          <View style={{ backgroundColor: '#fff', width: 320, padding: 25, borderRadius: 4, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 10 }}>
-            <Text style={{ textAlign: 'center', fontSize: 22, fontWeight: '900', marginBottom: 5, color: '#0f172a' }}>DuoSync Hub</Text>
-            <Text style={{ textAlign: 'center', fontSize: 12, color: '#64748b' }}>The Meet Up Hub • Taguig City</Text>
-            <Text style={{ textAlign: 'center', fontSize: 12, color: '#64748b', marginBottom: 15 }}>{receiptData?.date}</Text>
-            <View style={{ backgroundColor: '#f1f5f9', borderRadius: 6, padding: 10, marginBottom: 12, alignItems: 'center' }}>
-  <Text style={{ fontSize: 10, color: '#94a3b8', letterSpacing: 1, marginBottom: 2 }}>RECEIPT NO.</Text>
-  <Text style={{ textAlign: 'center', fontSize: 16, fontWeight: '900', color: '#0f172a', letterSpacing: 2 }}>
-    {receiptData?.transactionId}
-  </Text>
-</View>
-
-            {receiptData?.isLaundry && (
-              <View style={{ backgroundColor: '#f8fafc', padding: 10, borderRadius: 4, marginBottom: 10, borderWidth: 1, borderColor: '#e2e8f0', borderStyle: 'dashed' }}>
-                <Text style={{ textAlign: 'center', fontSize: 11, color: '#475569', fontWeight: 'bold', marginBottom: 6 }}>LAUNDRY CLAIM TICKET</Text>
-                <Text style={{ textAlign: 'center', fontSize: 12, color: '#0f172a' }}>Customer: {receiptData.customerName}</Text>
-                <Text style={{ textAlign: 'center', fontSize: 12, color: '#0f172a' }}>Phone: {receiptData.phone}</Text>
-                <Text style={{ textAlign: 'center', fontSize: 12, color: '#0f172a' }}>Weight: {receiptData.weight} kg</Text>
-                <Text style={{ textAlign: 'center', fontSize: 12, color: '#0f172a', fontWeight: 'bold', marginTop: 4 }}>Pickup: {receiptData.pickupDate}</Text>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', alignItems: 'center', padding: isLandscape ? 8 : 20 }}>
+          <View style={{ backgroundColor: '#fff', width: isLandscape ? 380 : 340, height: isLandscape ? '92%' : undefined, maxHeight: '92%', borderRadius: 8, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 10, overflow: 'hidden' }}>
+            <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={true} contentContainerStyle={{ padding: isLandscape ? 14 : 20 }}>
+              <Text style={{ textAlign: 'center', fontSize: 20, fontWeight: '900', marginBottom: 3, color: '#0f172a' }}>DuoSync Hub</Text>
+              <Text style={{ textAlign: 'center', fontSize: 11, color: '#64748b' }}>The Meet Up Hub • Taguig City</Text>
+              <Text style={{ textAlign: 'center', fontSize: 11, color: '#64748b', marginBottom: 12 }}>{receiptData?.date}</Text>
+              <View style={{ backgroundColor: '#f1f5f9', borderRadius: 6, padding: 8, marginBottom: 10, alignItems: 'center' }}>
+                <Text style={{ fontSize: 9, color: '#94a3b8', letterSpacing: 1, marginBottom: 2 }}>RECEIPT NO.</Text>
+                <Text style={{ textAlign: 'center', fontSize: 15, fontWeight: '900', color: '#0f172a', letterSpacing: 2 }}>
+                  {receiptData?.transactionId}
+                </Text>
               </View>
-            )}
 
-            <View style={{ borderBottomWidth: 1, borderBottomColor: '#94a3b8', borderStyle: 'dashed', marginBottom: 10 }} />
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 }}>
-              <Text style={{ fontWeight: 'bold', fontSize: 12, color: '#334155' }}>QTY  ITEM</Text>
-              <Text style={{ fontWeight: 'bold', fontSize: 12, color: '#334155' }}>AMOUNT</Text>
-            </View>
-            <View style={{ borderBottomWidth: 1, borderBottomColor: '#94a3b8', borderStyle: 'dashed', marginBottom: 10 }} />
+              {receiptData?.isLaundry && (
+                <View style={{ backgroundColor: '#f8fafc', padding: 10, borderRadius: 4, marginBottom: 10, borderWidth: 1, borderColor: '#e2e8f0', borderStyle: 'dashed' }}>
+                  <Text style={{ textAlign: 'center', fontSize: 11, color: '#475569', fontWeight: 'bold', marginBottom: 6 }}>LAUNDRY CLAIM TICKET</Text>
+                  <Text style={{ textAlign: 'center', fontSize: 12, color: '#0f172a' }}>Customer: {receiptData.customerName}</Text>
+                  <Text style={{ textAlign: 'center', fontSize: 12, color: '#0f172a' }}>Phone: {receiptData.phone}</Text>
+                  <Text style={{ textAlign: 'center', fontSize: 12, color: '#0f172a' }}>Weight: {receiptData.weight} kg</Text>
+                  <Text style={{ textAlign: 'center', fontSize: 12, color: '#0f172a', fontWeight: 'bold', marginTop: 4 }}>Pickup: {receiptData.pickupDate}</Text>
+                </View>
+              )}
 
-            <ScrollView style={{ maxHeight: 200 }}>
-              {receiptData?.cart.map((item, idx) => (
-                <View key={idx} style={{ marginBottom: 10 }}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                    <Text style={{ fontSize: 12, flex: 1, color: '#0f172a', fontWeight: '600' }}>{item.qty}x {item.item_name}</Text>
-                    <Text style={{ fontSize: 12, color: '#0f172a', fontWeight: '600' }}>{(item.base_price * item.qty).toFixed(2)}</Text>
-                  </View>
-                  {item.modifiers.map((mod, mIdx) => (
-                    <View key={mIdx} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingLeft: 15, marginTop: 2 }}>
-                      <Text style={{ fontSize: 10, color: '#64748b' }}>+ {(mod.qty || 1) > 1 ? `${mod.qty}x ` : ''}{mod.modifier_name}</Text>
-                      <Text style={{ fontSize: 10, color: '#64748b' }}>{(mod.additional_price * item.qty * (mod.qty || 1)).toFixed(2)}</Text>
+              <View style={{ borderBottomWidth: 1, borderBottomColor: '#94a3b8', borderStyle: 'dashed', marginBottom: 10 }} />
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+                <Text style={{ fontWeight: 'bold', fontSize: 12, color: '#334155' }}>QTY  ITEM</Text>
+                <Text style={{ fontWeight: 'bold', fontSize: 12, color: '#334155' }}>AMOUNT</Text>
+              </View>
+              <View style={{ borderBottomWidth: 1, borderBottomColor: '#94a3b8', borderStyle: 'dashed', marginBottom: 10 }} />
+
+              <View style={{ marginBottom: 10 }}>
+                {receiptData?.cart.map((item, idx) => (
+                  <View key={idx} style={{ marginBottom: 8 }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                      <Text style={{ fontSize: 12, flex: 1, color: '#0f172a', fontWeight: '600' }}>{item.qty}x {item.item_name}</Text>
+                      <Text style={{ fontSize: 12, color: '#0f172a', fontWeight: '600' }}>{(item.base_price * item.qty).toFixed(2)}</Text>
                     </View>
-                  ))}
-                </View>
-              ))}
-            </ScrollView>
-
-            <View style={{ borderBottomWidth: 1, borderBottomColor: '#94a3b8', borderStyle: 'dashed', marginVertical: 10 }} />
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 5 }}>
-              <Text style={{ fontSize: 12, color: '#475569' }}>Subtotal</Text>
-              <Text style={{ fontSize: 12, color: '#475569' }}>{receiptData?.totals.subtotal.toFixed(2)}</Text>
-            </View>
-            {receiptData?.discountAmount > 0 && (
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 5 }}>
-                <Text style={{ fontSize: 12, color: '#e74c3c', fontWeight: 'bold' }}>Discount Applied</Text>
-                <Text style={{ fontSize: 12, color: '#e74c3c', fontWeight: 'bold' }}>-{receiptData.discountAmount.toFixed(2)}</Text>
+                    {item.modifiers.map((mod, mIdx) => (
+                      <View key={mIdx} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingLeft: 15, marginTop: 2 }}>
+                        <Text style={{ fontSize: 10, color: '#64748b' }}>+ {(mod.qty || 1) > 1 ? `${mod.qty}x ` : ''}{mod.modifier_name}</Text>
+                        <Text style={{ fontSize: 10, color: '#64748b' }}>{(mod.additional_price * item.qty * (mod.qty || 1)).toFixed(2)}</Text>
+                      </View>
+                    ))}
+                  </View>
+                ))}
               </View>
-            )}
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 10 }}>
-              <Text style={{ fontSize: 18, fontWeight: '900', color: '#0f172a' }}>TOTAL</Text>
-              <Text style={{ fontSize: 18, fontWeight: '900', color: '#0f172a' }}>₱{receiptData?.totals.finalTotal.toFixed(2)}</Text>
-            </View>
 
-            {receiptData?.paymentMethod && (
-              <View style={{ marginTop: 10, paddingTop: 8, borderTopWidth: 1, borderColor: '#f1f5f9' }}>
+              <View style={{ borderBottomWidth: 1, borderBottomColor: '#94a3b8', borderStyle: 'dashed', marginVertical: 10 }} />
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                <Text style={{ fontSize: 12, color: '#475569' }}>Subtotal</Text>
+                <Text style={{ fontSize: 12, color: '#475569' }}>₱{receiptData?.totals.subtotal.toFixed(2)}</Text>
+              </View>
+              {receiptData?.discountAmount > 0 && (
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-                  <Text style={{ fontSize: 12, color: '#64748b' }}>Payment</Text>
-                  <Text style={{ fontSize: 12, fontWeight: 'bold', color: '#0f172a', textTransform: 'uppercase' }}>
-                    {receiptData.paymentMethod === 'gcash' ? 'GCash' : 'Cash'}
-                  </Text>
+                  <Text style={{ fontSize: 12, color: '#e74c3c', fontWeight: 'bold' }}>Discount Applied</Text>
+                  <Text style={{ fontSize: 12, color: '#e74c3c', fontWeight: 'bold' }}>-₱{receiptData.discountAmount.toFixed(2)}</Text>
                 </View>
-                {receiptData.paymentMethod === 'cash' && receiptData.amountReceived != null && (
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-                    <Text style={{ fontSize: 12, color: '#64748b' }}>Amount Received</Text>
-                    <Text style={{ fontSize: 12, fontWeight: '600', color: '#0f172a' }}>₱{receiptData.amountReceived.toFixed(2)}</Text>
-                  </View>
-                )}
-                {receiptData.paymentMethod === 'gcash' && (
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-                    <Text style={{ fontSize: 12, color: '#64748b' }}>GCash Ref #</Text>
-                    <Text style={{ fontSize: 12, fontWeight: 'bold', color: '#3b82f6' }}>{receiptData.gcashReference}</Text>
-                  </View>
-                )}
+              )}
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 6, marginBottom: 8 }}>
+                <Text style={{ fontSize: 16, fontWeight: '900', color: '#0f172a' }}>TOTAL</Text>
+                <Text style={{ fontSize: 16, fontWeight: '900', color: '#0f172a' }}>₱{receiptData?.totals.finalTotal.toFixed(2)}</Text>
               </View>
-            )}
 
-            <View style={{ borderBottomWidth: 1, borderBottomColor: '#94a3b8', borderStyle: 'dashed', marginVertical: 15 }} />
-            <Text style={{ textAlign: 'center', fontSize: 12, fontWeight: 'bold', color: '#334155', marginBottom: 20 }}>THANK YOU FOR YOUR PURCHASE!</Text>
-            <View style={{ flexDirection: 'row', gap: 10 }}>
-              <TouchableOpacity
-                style={{ flex: 1, backgroundColor: '#3b82f6', padding: 12, borderRadius: 6, alignItems: 'center' }}
-                onPress={() => setShowReceiptModal(false)}
-              >
-                <Text style={{ color: '#fff', fontWeight: 'bold' }}>Done</Text>
-              </TouchableOpacity>
-            </View>
+              {receiptData?.paymentMethod && (
+                <View style={{ marginTop: 6, paddingTop: 6, borderTopWidth: 1, borderColor: '#f1f5f9' }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <Text style={{ fontSize: 11, color: '#64748b' }}>Payment</Text>
+                    <Text style={{ fontSize: 11, fontWeight: 'bold', color: '#0f172a', textTransform: 'uppercase' }}>
+                      {receiptData.paymentMethod === 'gcash' ? 'GCash' : 'Cash'}
+                    </Text>
+                  </View>
+                  {receiptData.paymentMethod === 'cash' && receiptData.amountReceived != null && (
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                      <Text style={{ fontSize: 11, color: '#64748b' }}>Amount Received</Text>
+                      <Text style={{ fontSize: 11, fontWeight: '600', color: '#0f172a' }}>₱{receiptData.amountReceived.toFixed(2)}</Text>
+                    </View>
+                  )}
+                  {receiptData.paymentMethod === 'gcash' && (
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                      <Text style={{ fontSize: 11, color: '#64748b' }}>GCash Ref #</Text>
+                      <Text style={{ fontSize: 11, fontWeight: 'bold', color: '#3b82f6' }}>{receiptData.gcashReference}</Text>
+                    </View>
+                  )}
+                </View>
+              )}
+
+              <View style={{ borderBottomWidth: 1, borderBottomColor: '#94a3b8', borderStyle: 'dashed', marginVertical: 12 }} />
+              <Text style={{ textAlign: 'center', fontSize: 11, fontWeight: 'bold', color: '#334155', marginBottom: 14 }}>THANK YOU FOR YOUR PURCHASE!</Text>
+              <View style={{ flexDirection: 'row', gap: 10 }}>
+                <TouchableOpacity
+                  style={{ flex: 1, backgroundColor: '#3b82f6', padding: 12, borderRadius: 6, alignItems: 'center' }}
+                  onPress={() => setShowReceiptModal(false)}
+                >
+                  <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 14 }}>Done</Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
           </View>
         </View>
       </Modal>
 
       {/* 💳 PAYMENT METHOD MODAL */}
       <Modal visible={showPaymentModal} animationType="fade" transparent>
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Select Payment Method</Text>
-            <Text style={[styles.modalSubtitle, { marginBottom: 20 }]}>Amount due for this order</Text>
-            <View style={{ backgroundColor: '#F0FDF4', borderRadius: 12, padding: 20, alignItems: 'center', marginBottom: 20 }}>
-              <Text style={{ fontSize: 36, fontWeight: '900', color: '#16A34A' }}>
-                ₱{pendingCheckoutTotals?.finalTotal.toFixed(2)}
-              </Text>
-            </View>
-            <View style={{ flexDirection: 'row', gap: 10, marginBottom: 20 }}>
-              <TouchableOpacity
-                onPress={() => setPaymentMethod('cash')}
-                style={{ flex: 1, padding: 14, borderRadius: 10, alignItems: 'center', borderWidth: 2, borderColor: paymentMethod === 'cash' ? '#16A34A' : '#E2E8F0', backgroundColor: paymentMethod === 'cash' ? '#F0FDF4' : '#fff' }}
-              >
-                <Text style={{ fontWeight: '700', color: paymentMethod === 'cash' ? '#16A34A' : '#64748B' }}>Cash</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => setPaymentMethod('gcash')}
-                style={{ flex: 1, padding: 14, borderRadius: 10, alignItems: 'center', borderWidth: 2, borderColor: paymentMethod === 'gcash' ? '#3B82F6' : '#E2E8F0', backgroundColor: paymentMethod === 'gcash' ? '#EFF6FF' : '#fff' }}
-              >
-                <Text style={{ fontWeight: '700', color: paymentMethod === 'gcash' ? '#3B82F6' : '#64748B' }}>GCash</Text>
-              </TouchableOpacity>
-            </View>
-
-            {paymentMethod === 'cash' && (
-              <View style={{ marginBottom: 20 }}>
-                <Text style={styles.fieldLabel}>AMOUNT RECEIVED</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="e.g. 100"
-                  placeholderTextColor="#adb5bd"
-                  keyboardType="decimal-pad"
-                  value={amountReceived}
-                  onChangeText={(val) => setAmountReceived(val.replace(/[^0-9.]/g, ''))}
-                />
-                {parseFloat(amountReceived) >= (pendingCheckoutTotals?.finalTotal ?? 0) && amountReceived !== '' && (
-                  <Text style={{ color: '#16A34A', fontSize: 12, marginTop: 4 }}>
-                    Change: ₱{(parseFloat(amountReceived) - (pendingCheckoutTotals?.finalTotal ?? 0)).toFixed(2)}
-                  </Text>
-                )}
-                {parseFloat(amountReceived) < (pendingCheckoutTotals?.finalTotal ?? 0) && amountReceived !== '' && (
-                  <Text style={{ color: '#DC2626', fontSize: 12, marginTop: 4 }}>
-                    ⚠️ Short by ₱{((pendingCheckoutTotals?.finalTotal ?? 0) - parseFloat(amountReceived)).toFixed(2)}
-                  </Text>
-                )}
-              </View>
-            )}
-
-            {paymentMethod === 'gcash' && (
-              <View style={{ marginBottom: 20 }}>
-                <Text style={styles.fieldLabel}>GCASH REFERENCE / TRANSACTION ID</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="e.g. 1234567890"
-                  placeholderTextColor="#adb5bd"
-                  value={gcashReference}
-                  onChangeText={(val) => setGcashReference(val.replace(/[^0-9]/g, ''))}
-                  keyboardType="numeric"
-                  maxLength={13}
-                />
-                <Text style={{ color: '#3B82F6', fontSize: 12, marginTop: 4 }}>
-                  Double check if ₱{pendingCheckoutTotals?.finalTotal.toFixed(2)} is successfully sent to GCash.
+        <View style={[styles.modalBackdrop, isLandscape && { paddingVertical: 8 }]}>
+          <View style={[styles.modalCard, isLandscape && { height: '92%', maxHeight: '92%', paddingVertical: 12 }]}>
+            <ScrollView style={{ flex: 1, width: '100%' }} showsVerticalScrollIndicator={true} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 16 }}>
+              <Text style={[styles.modalTitle, isLandscape && { fontSize: 16, marginBottom: 2 }]}>Select Payment Method</Text>
+              <Text style={[styles.modalSubtitle, { marginBottom: isLandscape ? 10 : 20 }]}>Amount due for this order</Text>
+              <View style={{ backgroundColor: '#F0FDF4', borderRadius: 12, padding: isLandscape ? 10 : 20, alignItems: 'center', marginBottom: isLandscape ? 12 : 20 }}>
+                <Text style={{ fontSize: isLandscape ? 26 : 36, fontWeight: '900', color: '#16A34A' }}>
+                  ₱{pendingCheckoutTotals?.finalTotal.toFixed(2)}
                 </Text>
               </View>
-            )}
+              <View style={{ flexDirection: 'row', gap: 10, marginBottom: isLandscape ? 12 : 20 }}>
+                <TouchableOpacity
+                  onPress={() => setPaymentMethod('cash')}
+                  style={{ flex: 1, padding: isLandscape ? 10 : 14, borderRadius: 10, alignItems: 'center', borderWidth: 2, borderColor: paymentMethod === 'cash' ? '#16A34A' : '#E2E8F0', backgroundColor: paymentMethod === 'cash' ? '#F0FDF4' : '#fff' }}
+                >
+                  <Text style={{ fontWeight: '700', color: paymentMethod === 'cash' ? '#16A34A' : '#64748B' }}>Cash</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => setPaymentMethod('gcash')}
+                  style={{ flex: 1, padding: isLandscape ? 10 : 14, borderRadius: 10, alignItems: 'center', borderWidth: 2, borderColor: paymentMethod === 'gcash' ? '#3B82F6' : '#E2E8F0', backgroundColor: paymentMethod === 'gcash' ? '#EFF6FF' : '#fff' }}
+                >
+                  <Text style={{ fontWeight: '700', color: paymentMethod === 'gcash' ? '#3B82F6' : '#64748B' }}>GCash</Text>
+                </TouchableOpacity>
+              </View>
 
-            <View style={styles.modalActions}>
-              <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowPaymentModal(false)}>
-                <Text style={styles.cancelBtnText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.confirmBtn, { backgroundColor: paymentMethod === 'gcash' ? '#3B82F6' : '#16A34A' }]}
-                onPress={handleConfirmPayment}
-              >
-                <Text style={styles.confirmBtnText}>
-                  {paymentMethod === 'gcash' ? 'Confirm GCash' : 'Confirm Cash'}
-                </Text>
-              </TouchableOpacity>
-            </View>
+              {paymentMethod === 'cash' && (
+                <View style={{ marginBottom: isLandscape ? 12 : 20 }}>
+                  <Text style={styles.fieldLabel}>AMOUNT RECEIVED</Text>
+                  <TextInput
+                    style={[styles.input, isLandscape && { paddingVertical: 8 }]}
+                    placeholder="e.g. 100"
+                    placeholderTextColor="#adb5bd"
+                    keyboardType="decimal-pad"
+                    value={amountReceived}
+                    onChangeText={(val) => setAmountReceived(val.replace(/[^0-9.]/g, ''))}
+                  />
+                  {parseFloat(amountReceived) >= (pendingCheckoutTotals?.finalTotal ?? 0) && amountReceived !== '' && (
+                    <Text style={{ color: '#16A34A', fontSize: 12, marginTop: 4 }}>
+                      Change: ₱{(parseFloat(amountReceived) - (pendingCheckoutTotals?.finalTotal ?? 0)).toFixed(2)}
+                    </Text>
+                  )}
+                  {parseFloat(amountReceived) < (pendingCheckoutTotals?.finalTotal ?? 0) && amountReceived !== '' && (
+                    <Text style={{ color: '#DC2626', fontSize: 12, marginTop: 4 }}>
+                      ⚠️ Short by ₱{((pendingCheckoutTotals?.finalTotal ?? 0) - parseFloat(amountReceived)).toFixed(2)}
+                    </Text>
+                  )}
+                </View>
+              )}
+
+              {paymentMethod === 'gcash' && (
+                <View style={{ marginBottom: isLandscape ? 12 : 20 }}>
+                  <Text style={styles.fieldLabel}>GCASH REFERENCE / TRANSACTION ID</Text>
+                  <TextInput
+                    style={[styles.input, isLandscape && { paddingVertical: 8 }]}
+                    placeholder="e.g. 1234567890"
+                    placeholderTextColor="#adb5bd"
+                    value={gcashReference}
+                    onChangeText={(val) => setGcashReference(val.replace(/[^0-9]/g, ''))}
+                    keyboardType="numeric"
+                    maxLength={13}
+                  />
+                  <Text style={{ color: '#3B82F6', fontSize: 12, marginTop: 4 }}>
+                    Double check if ₱{pendingCheckoutTotals?.finalTotal.toFixed(2)} is successfully sent to GCash.
+                  </Text>
+                </View>
+              )}
+
+              <View style={[styles.modalActions, { marginTop: 10 }]}>
+                <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowPaymentModal(false)}>
+                  <Text style={styles.cancelBtnText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.confirmBtn, { backgroundColor: paymentMethod === 'gcash' ? '#3B82F6' : '#16A34A' }]}
+                  onPress={handleConfirmPayment}
+                >
+                  <Text style={styles.confirmBtnText}>
+                    {paymentMethod === 'gcash' ? 'Confirm GCash' : 'Confirm Cash'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -1768,9 +1766,9 @@ const styles = StyleSheet.create({
   cartItemRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 5 },
   cartItemName: { fontSize: 13, fontWeight: 'bold', color: '#333', flex: 1, marginRight: 8 },
 cartItemPrice: { fontSize: 13, fontWeight: 'bold', color: '#333', flexShrink: 0 },
-  modifierRow: { flexDirection: 'row', justifyContent: 'space-between', paddingLeft: 15, marginBottom: 2, flexWrap: 'wrap' },
-  modifierText: { fontSize: 12, color: '#64748b', flex: 1, flexWrap: 'wrap', paddingRight: 4 },
-  modifierPrice: { fontSize: 12, color: '#64748b', flexShrink: 0 },
+  modifierRow: { flexDirection: 'row', justifyContent: 'space-between', paddingLeft: 15, marginBottom: 6, flexWrap: 'wrap' },
+  modifierText: { fontSize: 14, color: '#64748b', flex: 1, flexWrap: 'wrap', paddingRight: 4 },
+  modifierPrice: { fontSize: 14, color: '#64748b', flexShrink: 0 },
   cartActions: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderColor: '#f1f5f9' },
   addonBtn: { backgroundColor: '#e0f2fe', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 4 },
 

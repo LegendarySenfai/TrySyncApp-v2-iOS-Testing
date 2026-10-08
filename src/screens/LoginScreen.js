@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, TextInput, Alert, ActivityIndicator, Platform, SafeAreaView, KeyboardAvoidingView, ScrollView, Image, Modal } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, TextInput, Alert, ActivityIndicator, Platform, SafeAreaView, KeyboardAvoidingView, ScrollView, Image, Modal, useWindowDimensions } from 'react-native';
 import { useAuth } from '../context/AuthContext';
 import EyeIcon    from '../../assets/images/noun-show-eye.svg';
 import EyeOffIcon from '../../assets/images/noun-eye-hide.svg';
@@ -7,6 +7,8 @@ import api from '../config/api';
 
 
 export default function LoginScreen({ navigation }) {
+  const { width, height } = useWindowDimensions();
+  const isLandscape = width > height;
   const { login, finalizeLogin } = useAuth();
   
   const [username, setUsername] = useState('');
@@ -163,7 +165,11 @@ export default function LoginScreen({ navigation }) {
 
   const handleResetPassword = async () => {
     if (newPassword !== confirmPassword) return showAlert("Error", "Passwords do not match.");
-    if (newPassword.length < 5) return showAlert("Error", "Password must be at least 8 characters.");
+    const missing = [];
+    if (!isLengthValid) missing.push('at least 8 characters');
+    if (!hasUppercase) missing.push('one uppercase letter');
+    if (!hasNumber) missing.push('one number');
+    if (missing.length) return showAlert("Error", `Password needs ${missing.join(', ')}.`);
     setLoading(true);
     try {
       const res = await api.post('/forgot-reset-password', { email: forgotEmail.trim(), newPassword });
@@ -219,22 +225,26 @@ export default function LoginScreen({ navigation }) {
 
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         <ScrollView
-          contentContainerStyle={styles.inner}
+          style={{ flex: 1 }}
+          contentContainerStyle={[
+            styles.inner,
+            !isLandscape && { justifyContent: 'center' } // Centers in portrait, allows top-down scroll in landscape
+          ]}
           keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
+          showsVerticalScrollIndicator={true}
         >
 
         {step === 1 && (
-          <View style={styles.header}>
+          <View style={[styles.header, isLandscape && { marginBottom: 14 }]}>
             <Image 
               source={require('../../assets/images/duosync-splash.png')}
-              style={styles.logo}
+              style={[styles.logo, isLandscape && { width: 64, height: 64, borderRadius: 32, marginBottom: 8 }]}
               resizeMode="contain"
             />
-            <Text style={styles.title}>DuoSync</Text>
-            <Text style={styles.subtitle}>The Meet Up Hub • POS</Text>
+            <Text style={[styles.title, isLandscape && { fontSize: 24 }]}>DuoSync</Text>
+            <Text style={[styles.subtitle, isLandscape && { fontSize: 11, letterSpacing: 1 }]}>Cafe and Laundry POS</Text>
           </View>
         )}
 
@@ -307,7 +317,7 @@ export default function LoginScreen({ navigation }) {
               >
                 <Text style={styles.linkText}>Forgot username</Text>
               </TouchableOpacity>
-              <Text style={styles.linkDivider}>·</Text>
+              <Text style={styles.linkDivider}>or</Text>
               <TouchableOpacity 
                 onPress={() => { setForgotType('password'); reset(3); }}
                 hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
@@ -526,20 +536,19 @@ const styles = StyleSheet.create({
   },
   inner: {
     flexGrow: 1,
-    justifyContent: 'center',
     paddingHorizontal: 32,
     paddingVertical: 24,
   },
   header: {
-    marginBottom: 48,
+    marginBottom: 44,
     alignItems: 'center',
   },
   logo: {
-    width: 120,         
+    width: 120,        
     height: 120,        
     borderRadius: 60,    
     marginBottom: 20,
-    borderWidth: 2,     
+    borderWidth: 2,    
     borderColor: '#E2E8F0', 
     overflow: 'hidden', 
   },
@@ -596,7 +605,7 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
   },
   linkText: {
-    color: '#475569',
+    color: '#2563EB',
     fontSize: 14,
     fontWeight: '600',
   },
@@ -607,7 +616,7 @@ const styles = StyleSheet.create({
     marginTop: 24,
   },
   linkDivider: {
-    color: '#CBD5E1',
+    color: '#64748B',
     fontSize: 14,
     marginHorizontal: 10,
   },
@@ -659,7 +668,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   cancelText: { 
-    color: '#475569', 
+    color: '#2563EB', 
     fontSize: 14,
     fontWeight: '600',
   },

@@ -4,7 +4,6 @@
     "slug": "DuoSync",
     "owner": "kantocoders",
     "version": "1.0.0",
-    "platforms": ["ios", "android"],
     "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "trisyncapp",
@@ -19,7 +18,10 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.duosync.mobile",
-      "buildNumber": "2"
+      "buildNumber": "4",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -37,6 +39,7 @@
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
+      "expo-router",
       [
         "expo-splash-screen",
         {

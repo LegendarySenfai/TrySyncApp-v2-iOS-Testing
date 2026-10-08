@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import {
   View, Text, Modal, TextInput, TouchableOpacity,
-  StyleSheet, ActivityIndicator, Alert, ScrollView, Platform, KeyboardAvoidingView
+  StyleSheet, ActivityIndicator, Alert, ScrollView, Platform, KeyboardAvoidingView,
+  useWindowDimensions
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
@@ -41,6 +42,8 @@ const showResponsiveAlert = (title, message) => {
 };
 
 export default function LaundryScreen() {
+  const { width, height } = useWindowDimensions();
+  const isLandscape = width > height;
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -268,119 +271,121 @@ export default function LaundryScreen() {
           if (checkoutResolver) checkoutResolver({ success: false });
         }}
       >
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Select Payment Method</Text>
-            <Text style={[styles.modalSubtitle, { marginBottom: 20 }]}>Amount due for this order</Text>
+        <View style={[styles.modalBackdrop, isLandscape && { paddingVertical: 8 }]}>
+          <View style={[styles.modalCard, isLandscape && { height: '92%', maxHeight: '92%', paddingVertical: 12 }]}>
+            <ScrollView style={{ flex: 1, width: '100%' }} showsVerticalScrollIndicator={true} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 16 }}>
+              <Text style={[styles.modalTitle, isLandscape && { fontSize: 16, marginBottom: 2 }]}>Select Payment Method</Text>
+              <Text style={[styles.modalSubtitle, { marginBottom: isLandscape ? 8 : 20 }]}>Amount due for this order</Text>
 
-            <View style={{ backgroundColor: '#F0FDF4', borderRadius: 12, padding: 20, alignItems: 'center', marginBottom: 20 }}>
-              <Text style={{ fontSize: 36, fontWeight: '900', color: '#16A34A' }}>
-                ₱{Number(pendingTotal).toFixed(2)}
-              </Text>
-            </View>
-
-            <View style={{ flexDirection: 'row', gap: 10, marginBottom: 20 }}>
-              <TouchableOpacity
-                onPress={() => {
-                  setPaymentMethod('cash');
-                  setGcashError('');
-                }}
-                style={{
-                  flex: 1, padding: 14, borderRadius: 10, alignItems: 'center',
-                  borderWidth: 2,
-                  borderColor: paymentMethod === 'cash' ? '#16A34A' : '#E2E8F0',
-                  backgroundColor: paymentMethod === 'cash' ? '#F0FDF4' : '#fff',
-                }}
-              >
-                <Text style={{ fontWeight: '700', color: paymentMethod === 'cash' ? '#16A34A' : '#64748B', marginTop: 2, textAlign: 'center' }}>Cash</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                onPress={() => {
-                  setPaymentMethod('gcash');
-                  setAmountError('');
-                }}
-                style={{
-                  flex: 1, padding: 14, borderRadius: 10, alignItems: 'center',
-                  borderWidth: 2,
-                  borderColor: paymentMethod === 'gcash' ? '#3B82F6' : '#E2E8F0',
-                  backgroundColor: paymentMethod === 'gcash' ? '#EFF6FF' : '#fff',
-                }}
-              >
-                <Text style={{ fontWeight: '700', color: paymentMethod === 'gcash' ? '#3B82F6' : '#64748B', marginTop: 2, textAlign: 'center' }}>GCash</Text>
-              </TouchableOpacity>
-            </View>
-
-            {paymentMethod === 'cash' && (
-              <View style={{ marginBottom: 20 }}>
-                <Text style={styles.fieldLabel}>AMOUNT RECEIVED</Text>
-                <TextInput
-                  style={[styles.input, amountError ? { borderColor: '#EF4444' } : null]}
-                  placeholder="e.g. 100"
-                  placeholderTextColor="#adb5bd"
-                  keyboardType="decimal-pad"
-                  value={amountReceived}
-                  onChangeText={(text) => {
-                    setAmountReceived(text);
-                    if (amountError) setAmountError('');
-                  }}
-                />
-                {amountError ? (
-                  <Text style={{ color: '#EF4444', fontSize: 12, marginTop: 4 }}>
-                    {amountError}
-                  </Text>
-                ) : ( 
-                  parseFloat(amountReceived) >= pendingTotal && (
-                    <Text style={{ color: '#16A34A', fontSize: 12, marginTop: 4 }}>
-                      Change: ₱{(parseFloat(amountReceived) - pendingTotal).toFixed(2)}
-                    </Text>
-                  )
-                )}
-              </View>
-            )}
-
-            {paymentMethod === 'gcash' && (
-              <View style={{ marginBottom: 20 }}>
-                <Text style={styles.fieldLabel}>GCASH REFERENCE / TRANSACTION ID</Text>
-                <TextInput
-                  style={[styles.input, gcashError ? { borderColor: '#EF4444' } : null]}
-                  placeholder="e.g. 1234567890"
-                  placeholderTextColor="#adb5bd"
-                  value={gcashReference}
-                  onChangeText={(text) => {
-                    setGcashReference(text);
-                    if (gcashError) setGcashError('');
-                  }}
-                />
-                {gcashError ? (
-                  <Text style={{ color: '#EF4444', fontSize: 12, marginTop: 4 }}>{gcashError}</Text>
-                ) : (
-                  <Text style={{ color: '#3B82F6', fontSize: 12, marginTop: 4 }}>
-                    Double check if ₱{Number(pendingTotal).toFixed(2)} is successfully sent to GCash.
-                  </Text>
-                )}
-              </View>
-            )}
-
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                style={styles.cancelBtn}
-                onPress={() => {
-                  setPaymentModalVisible(false);
-                  if (checkoutResolver) checkoutResolver({ success: false });
-                }}
-              >
-                <Text style={styles.cancelBtnText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.confirmBtn, { backgroundColor: paymentMethod === 'gcash' ? '#3B82F6' : '#16A34A' }]}
-                onPress={handleConfirmPayment}
-              >
-                <Text style={styles.confirmBtnText}>
-                  {paymentMethod === 'gcash' ? 'Confirm GCash' : 'Confirm Cash'}
+              <View style={{ backgroundColor: '#F0FDF4', borderRadius: 12, padding: isLandscape ? 10 : 20, alignItems: 'center', marginBottom: isLandscape ? 10 : 20 }}>
+                <Text style={{ fontSize: isLandscape ? 24 : 36, fontWeight: '900', color: '#16A34A' }}>
+                  ₱{Number(pendingTotal).toFixed(2)}
                 </Text>
-              </TouchableOpacity>
-            </View>
+              </View>
+
+              <View style={{ flexDirection: 'row', gap: 10, marginBottom: isLandscape ? 10 : 20 }}>
+                <TouchableOpacity
+                  onPress={() => {
+                    setPaymentMethod('cash');
+                    setGcashError('');
+                  }}
+                  style={{
+                    flex: 1, padding: isLandscape ? 9 : 14, borderRadius: 10, alignItems: 'center',
+                    borderWidth: 2,
+                    borderColor: paymentMethod === 'cash' ? '#16A34A' : '#E2E8F0',
+                    backgroundColor: paymentMethod === 'cash' ? '#F0FDF4' : '#fff',
+                  }}
+                >
+                  <Text style={{ fontWeight: '700', color: paymentMethod === 'cash' ? '#16A34A' : '#64748B', marginTop: 2, textAlign: 'center' }}>Cash</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={() => {
+                    setPaymentMethod('gcash');
+                    setAmountError('');
+                  }}
+                  style={{
+                    flex: 1, padding: isLandscape ? 9 : 14, borderRadius: 10, alignItems: 'center',
+                    borderWidth: 2,
+                    borderColor: paymentMethod === 'gcash' ? '#3B82F6' : '#E2E8F0',
+                    backgroundColor: paymentMethod === 'gcash' ? '#EFF6FF' : '#fff',
+                  }}
+                >
+                  <Text style={{ fontWeight: '700', color: paymentMethod === 'gcash' ? '#3B82F6' : '#64748B', marginTop: 2, textAlign: 'center' }}>GCash</Text>
+                </TouchableOpacity>
+              </View>
+
+              {paymentMethod === 'cash' && (
+                <View style={{ marginBottom: isLandscape ? 10 : 20 }}>
+                  <Text style={styles.fieldLabel}>AMOUNT RECEIVED</Text>
+                  <TextInput
+                    style={[styles.input, isLandscape && { paddingVertical: 8 }, amountError ? { borderColor: '#EF4444' } : null]}
+                    placeholder="e.g. 100"
+                    placeholderTextColor="#adb5bd"
+                    keyboardType="decimal-pad"
+                    value={amountReceived}
+                    onChangeText={(text) => {
+                      setAmountReceived(text);
+                      if (amountError) setAmountError('');
+                    }}
+                  />
+                  {amountError ? (
+                    <Text style={{ color: '#EF4444', fontSize: 12, marginTop: 4 }}>
+                      {amountError}
+                    </Text>
+                  ) : ( 
+                    parseFloat(amountReceived) >= pendingTotal && (
+                      <Text style={{ color: '#16A34A', fontSize: 12, marginTop: 4 }}>
+                        Change: ₱{(parseFloat(amountReceived) - pendingTotal).toFixed(2)}
+                      </Text>
+                    )
+                  )}
+                </View>
+              )}
+
+              {paymentMethod === 'gcash' && (
+                <View style={{ marginBottom: isLandscape ? 10 : 20 }}>
+                  <Text style={styles.fieldLabel}>GCASH REFERENCE / TRANSACTION ID</Text>
+                  <TextInput
+                    style={[styles.input, isLandscape && { paddingVertical: 8 }, gcashError ? { borderColor: '#EF4444' } : null]}
+                    placeholder="e.g. 1234567890"
+                    placeholderTextColor="#adb5bd"
+                    value={gcashReference}
+                    onChangeText={(text) => {
+                      setGcashReference(text);
+                      if (gcashError) setGcashError('');
+                    }}
+                  />
+                  {gcashError ? (
+                    <Text style={{ color: '#EF4444', fontSize: 12, marginTop: 4 }}>{gcashError}</Text>
+                  ) : (
+                    <Text style={{ color: '#3B82F6', fontSize: 12, marginTop: 4 }}>
+                      Double check if ₱{Number(pendingTotal).toFixed(2)} is successfully sent to GCash.
+                    </Text>
+                  )}
+                </View>
+              )}
+
+              <View style={[styles.modalActions, { marginTop: 8 }]}>
+                <TouchableOpacity
+                  style={styles.cancelBtn}
+                  onPress={() => {
+                    setPaymentModalVisible(false);
+                    if (checkoutResolver) checkoutResolver({ success: false });
+                  }}
+                >
+                  <Text style={styles.cancelBtnText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.confirmBtn, { backgroundColor: paymentMethod === 'gcash' ? '#3B82F6' : '#16A34A' }]}
+                  onPress={handleConfirmPayment}
+                >
+                  <Text style={styles.confirmBtnText}>
+                    {paymentMethod === 'gcash' ? 'Confirm GCash' : 'Confirm Cash'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -394,9 +399,9 @@ export default function LaundryScreen() {
       >
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={styles.modalBackdrop}
+          style={[styles.modalBackdrop, isLandscape && { paddingVertical: 8 }]}
         >
-          <View style={styles.modalCard}>
+          <View style={[styles.modalCard, isLandscape && { height: '92%', maxHeight: '92%', paddingVertical: 12 }]}>
             <View style={styles.modalHeader}>
               <View style={styles.modalIconBadge}>
                 <Text style={styles.modalIcon}>🧺</Text>
@@ -527,69 +532,71 @@ export default function LaundryScreen() {
         transparent
         onRequestClose={() => setTicketModalVisible(false)}
       >
-        <View style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, { alignItems: 'center', paddingVertical: 35 }]}>
-            <Text style={{ fontSize: 48, marginBottom: 10 }}>🎟️</Text>
-            <Text style={styles.successTitle}>Order Confirmed!</Text>
-            <Text style={styles.successSub}>Attach this ticket to the laundry bag</Text>
+        <View style={[styles.modalBackdrop, isLandscape && { paddingVertical: 8 }]}>
+          <View style={[styles.modalCard, { maxHeight: '92%', height: isLandscape ? '92%' : undefined, paddingVertical: isLandscape ? 12 : 28 }]}>
+            <ScrollView style={{ flex: 1, width: '100%' }} showsVerticalScrollIndicator={true} contentContainerStyle={{ alignItems: 'center', paddingBottom: 16 }}>
+              <Text style={{ fontSize: isLandscape ? 32 : 48, marginBottom: 6 }}>🎟️</Text>
+              <Text style={[styles.successTitle, isLandscape && { fontSize: 18, marginBottom: 2 }]}>Order Confirmed!</Text>
+              <Text style={[styles.successSub, isLandscape && { fontSize: 11, marginBottom: 12 }]}>Attach this ticket to the laundry bag</Text>
 
-            <View style={[styles.bigTicket, { paddingHorizontal: 20 }]}>
-              <Text style={styles.bigTicketLabel}>CLAIM TICKET</Text>
-              <Text
-                style={styles.bigTicketNumber}
-                numberOfLines={1}
-                adjustsFontSizeToFit={true}
-              >
-                {lastTicket}
-              </Text>
-            </View>
-
-            <View style={styles.successDetails}>
-              <View style={styles.successRow}>
-                <Text style={styles.successKey}>Customer</Text>
-                <Text style={styles.successVal}>{lastCustomer}</Text>
-              </View>
-              <View style={styles.successRow}>
-                <Text style={styles.successKey}>Phone</Text>
-                <Text style={styles.successVal}>{lastPhone}</Text>
-              </View>
-              <View style={styles.successRow}>
-                <Text style={styles.successKey}>Weight</Text>
-                <Text style={styles.successVal}>{lastWeight} kg</Text>
-              </View>
-              <View style={styles.successRow}>
-                <Text style={styles.successKey}>Total</Text>
-                <Text style={[styles.successVal, { color: '#27ae60', fontWeight: 'bold' }]}>
-                  ₱{Number(lastTotal).toFixed(2)}
+              <View style={[styles.bigTicket, { paddingHorizontal: 20, paddingVertical: isLandscape ? 12 : 20 }]}>
+                <Text style={styles.bigTicketLabel}>CLAIM TICKET</Text>
+                <Text
+                  style={[styles.bigTicketNumber, isLandscape && { fontSize: 20 }]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit={true}
+                >
+                  {lastTicket}
                 </Text>
               </View>
-              <View style={styles.successRow}>
-                <Text style={styles.successKey}>Pickup Date</Text>
-                <Text style={styles.successVal}>{lastPickup}</Text>
-              </View>
-            </View>
 
-            <TouchableOpacity
-              style={[styles.confirmBtn, { flex: 0, marginTop: 25, width: '100%', justifyContent: 'center' }]}
-              onPress={() => {
-                setTicketModalVisible(false);
-                if (checkoutResolver) checkoutResolver({ 
-                  success: true, 
-                  ticket: lastTicket, 
-                  customer: lastCustomer, 
-                  pickupDate: lastPickup,
-                  phone: lastPhone,      
-                  weight: lastWeight,
-                  paymentMethod: paymentMethod,
-                  amountReceived: paymentMethod === 'cash' ? parseFloat(amountReceived) : null,
-                  change: paymentMethod === 'cash' ? (parseFloat(amountReceived) - (pendingCheckoutPayload?.total_revenue ?? 0)) : null,
-                  gcashReference: paymentMethod === 'gcash' ? gcashReference : null
-                });
-                fetchData();
-              }}
-            >
-              <Text style={styles.confirmBtnText}>Print</Text>
-            </TouchableOpacity>
+              <View style={[styles.successDetails, isLandscape && { marginTop: 12 }]}>
+                <View style={styles.successRow}>
+                  <Text style={styles.successKey}>Customer</Text>
+                  <Text style={styles.successVal}>{lastCustomer}</Text>
+                </View>
+                <View style={styles.successRow}>
+                  <Text style={styles.successKey}>Phone</Text>
+                  <Text style={styles.successVal}>{lastPhone}</Text>
+                </View>
+                <View style={styles.successRow}>
+                  <Text style={styles.successKey}>Weight</Text>
+                  <Text style={styles.successVal}>{lastWeight} kg</Text>
+                </View>
+                <View style={styles.successRow}>
+                  <Text style={styles.successKey}>Total</Text>
+                  <Text style={[styles.successVal, { color: '#27ae60', fontWeight: 'bold' }]}>
+                    ₱{Number(lastTotal).toFixed(2)}
+                  </Text>
+                </View>
+                <View style={styles.successRow}>
+                  <Text style={styles.successKey}>Pickup Date</Text>
+                  <Text style={styles.successVal}>{lastPickup}</Text>
+                </View>
+              </View>
+
+              <TouchableOpacity
+                style={[styles.confirmBtn, { flex: 0, marginTop: isLandscape ? 14 : 25, width: '100%', justifyContent: 'center' }]}
+                onPress={() => {
+                  setTicketModalVisible(false);
+                  if (checkoutResolver) checkoutResolver({ 
+                    success: true, 
+                    ticket: lastTicket, 
+                    customer: lastCustomer, 
+                    pickupDate: lastPickup,
+                    phone: lastPhone,      
+                    weight: lastWeight,
+                    paymentMethod: paymentMethod,
+                    amountReceived: paymentMethod === 'cash' ? parseFloat(amountReceived) : null,
+                    change: paymentMethod === 'cash' ? (parseFloat(amountReceived) - (pendingCheckoutPayload?.total_revenue ?? 0)) : null,
+                    gcashReference: paymentMethod === 'gcash' ? gcashReference : null
+                  });
+                  fetchData();
+                }}
+              >
+                <Text style={styles.confirmBtnText}>Print</Text>
+              </TouchableOpacity>
+            </ScrollView>
           </View>
         </View>
       </Modal>

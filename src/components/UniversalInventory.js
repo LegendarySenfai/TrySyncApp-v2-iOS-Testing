@@ -1,9 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, Modal, TextInput, Alert, ActivityIndicator, ScrollView, KeyboardAvoidingView, Platform, RefreshControl } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, Modal, TextInput, Alert, ActivityIndicator, ScrollView, KeyboardAvoidingView, Platform, RefreshControl, useWindowDimensions } from 'react-native';
 import api from '../config/api';
 import { useAuth } from '../context/AuthContext';
+import ShiftTransactionHistory from './ShiftTransactionHistory';
 
 export default function UniversalInventory({ category }) {
+  const { width, height } = useWindowDimensions();
+  const isLandscape = width > height;
+  const [activeTab, setActiveTab] = useState('inventory'); // 'inventory' | 'transactions'
   const { user } = useAuth();
   const [ingredients, setIngredients] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -126,25 +130,59 @@ export default function UniversalInventory({ category }) {
 
   return (
     <View style={styles.container}>
-      <View style={styles.headerRow}>
-              <Text style={styles.headerTitle} numberOfLines={1} ellipsizeMode="tail">
-                {category.toUpperCase()} INGREDIENTS
-              </Text>
-              <TouchableOpacity style={styles.mainBatchBtn} onPress={openBatchModal}>
-                <Text style={styles.mainBatchBtnText}>🧾 Log Grocery Receipt</Text>
-              </TouchableOpacity>
-        </View>
+      {/* ── Sub-Tab Switcher ── */}
+      <View style={styles.tabContainer}>
+        <TouchableOpacity
+          style={[styles.tabBtn, activeTab === 'inventory' && styles.tabBtnActive]}
+          onPress={() => setActiveTab('inventory')}
+        >
+          <Text style={[styles.tabText, activeTab === 'inventory' && styles.tabTextActive]}>
+            📦 Stock & Restock
+          </Text>
+        </TouchableOpacity>
 
-      {loading ? <ActivityIndicator size="large" color="#3498db" /> : (
-        <FlatList 
-            data={ingredients} 
-            keyExtractor={(item, index) => index.toString()} 
-            renderItem={renderItem} 
-            refreshControl={
+        <TouchableOpacity
+          style={[styles.tabBtn, activeTab === 'transactions' && styles.tabBtnActive]}
+          onPress={() => setActiveTab('transactions')}
+        >
+          <Text style={[styles.tabText, activeTab === 'transactions' && styles.tabTextActive]}>
+            🧾 Shift Transactions
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* ── Conditional View ── */}
+      {activeTab === 'transactions' ? (
+        <View style={{ flex: 1 }}>
+          <ShiftTransactionHistory category={category} />
+        </View>
+      ) : (
+        <View style={{ flex: 1 }}>
+          <View style={styles.headerRow}>
+            <Text style={styles.headerTitle} numberOfLines={1} ellipsizeMode="tail">
+              {category.toUpperCase()} INGREDIENTS
+            </Text>
+            <TouchableOpacity style={styles.mainBatchBtn} onPress={openBatchModal}>
+              <Text style={styles.mainBatchBtnText}>🧾 Log Grocery Receipt</Text>
+            </TouchableOpacity>
+          </View>
+
+          {loading ? (
+            <ActivityIndicator size="large" color="#3498db" />
+          ) : (
+            <FlatList 
+              data={ingredients} 
+              keyExtractor={(item, index) => index.toString()} 
+              renderItem={renderItem} 
+              refreshControl={
                 <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#27ae60']} />
-            }
-        />
+              }
+            />
+          )}
+        </View>
       )}
+
+      {/* BATCH RESTOCK MODAL */}
 
       {/* BATCH RESTOCK MODAL */}
       <Modal visible={batchModalVisible} animationType="slide" transparent>
@@ -232,13 +270,42 @@ export default function UniversalInventory({ category }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 20, backgroundColor: '#fff' },
+  container: { flex: 1, paddingHorizontal: 16, paddingVertical: 10, backgroundColor: '#fff' },
 headerRow: { 
     flexDirection: 'row', 
     justifyContent: 'space-between', 
     alignItems: 'center', 
     marginBottom: 16,
     gap: 8
+  },
+  tabContainer: {
+    flexDirection: 'row',
+    backgroundColor: '#E2E8F0',
+    borderRadius: 10,
+    padding: 3,
+    marginBottom: 14,
+  },
+  tabBtn: {
+    flex: 1,
+    paddingVertical: 9,
+    alignItems: 'center',
+    borderRadius: 8,
+  },
+  tabBtnActive: {
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  tabText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#64748B',
+  },
+  tabTextActive: {
+    color: '#0F172A',
   },
   headerTitle: { 
     fontSize: 16, 
